@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+env/
+venv/
+
+# Data and models (too large for Git)
+data/*
+!data/.gitkeep
+models/*
+!models/.gitkeep
+
+# Jupyter
+.ipynb_checkpoints/
+notebooks/*.ipynb
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+.dockerignore
+
+# Logs
+*.log
+logs/

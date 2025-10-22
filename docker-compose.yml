@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  transformer:
+    build: .
+    volumes:
+      - ./src:/app/src
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./notebooks:/app/notebooks
+    ports:
+      - "8888:8888" # For Jupyter
+    stdin_open: true # Add this for interactive shell
+    tty: true        # Add this for interactive shell
+    command: bash
