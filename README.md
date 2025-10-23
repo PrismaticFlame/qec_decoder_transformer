@@ -46,7 +46,7 @@ These steps are what you will do in the root directory of the project after clon
 
 **1. Clone the repository**
 ```bash
-    git clone
+    git clone https://github.com/PrismaticFlame/qec_decoder_transformer.git
     cd transformer-project
 ```
 
