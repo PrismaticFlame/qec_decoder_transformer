@@ -17,7 +17,7 @@ Also, you will need WSL (Window Subsystem for Linux) and have it updated for thi
 They are a little annoying, but I belive in you. Docker needs WSL to work, so do that before any of the steps below.
 
 1. Build image
-> [!NOTE]
+> [!warning]
 > DON'T DO THIS YET. READ FIRST.
 ```bash
     docker-compose build
@@ -27,8 +27,8 @@ They are a little annoying, but I belive in you. Docker needs WSL to work, so do
 ```bash
     docker-compose run --rm transformer bash
 ```
-> [!NOTE]
-> This specific command is just for this project, and you can find the declaration of this command in `docker-compose.yml` paired with the final line of the `Dockerfile`.
+> [!tip]
+> The `docker-compose run --rm transformer bash` command is a specific command to just this project, and you can find the declaration of this command in `docker-compose.yml` paired with the final line of the `Dockerfile`.
 
 3. Run test script
 ```bash
@@ -53,7 +53,7 @@ They are a little annoying, but I belive in you. Docker needs WSL to work, so do
     docker-compose build
 ```
 > [!NOTE]
-> This took quite a while on my laptop, around 10-12 minutes. Prepare for this to take a while. Thankfully this huge, long process only happens once. If any changes happen in the Dockerfile, requirements.txt, or docker-compose.yml, run this command again and it will take under a minute (hopefully).
+> `docker-compose build` took quite a while on my laptop, around 10-12 minutes. Prepare for this to take a while. Thankfully this huge, long process only happens once. If any changes happen in `Dockerfile`, `requirements.txt`, or `docker-compose.yml`, run this command again and it will take under a minute (hopefully).
 
 3. Run container:
 ```bash
@@ -67,7 +67,7 @@ They are a little annoying, but I belive in you. Docker needs WSL to work, so do
 
 # Project Structure
 
-> [!NOTE]
+> [!warning]
 > This is subject to change. The structure will likely not reflect the current structure of the project because of consistent changes.
 
 - `src/` - Source code
@@ -80,7 +80,7 @@ They are a little annoying, but I belive in you. Docker needs WSL to work, so do
 
 # Development
 
-> [!NOTE]
+> [!note]
 > I will get around to making this section make more sense. For now, ignore it.
 
 Start Jupyter notebook:
