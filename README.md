@@ -3,11 +3,11 @@
 Creating a Transformer Neural Network that will function as AlphaQubit, Google's Transformer Quantum Error Correction Decoder.
 
 # Table of Contents:
-1. How to use Docker
-2. Setup
-3. Project Structure
-4. Development
-5. Team Members
+1. [How to use Docker](#how-to-use-docker)
+2. [Setup](#setup)
+3. [Project Structure](#project-structure)
+4. [Development](#development)
+5. [Team Members](#team-members)
 
 # How to use Docker
 If you do not have Docker installed on your computer, you will need to install it. I recommend getting Docker Desktop instead of just the engine, but up to you.
@@ -27,6 +27,8 @@ They are a little annoying, but I belive in you. Docker needs WSL to work, so do
 ```bash
     docker-compose run --rm transformer bash
 ```
+> [!NOTE]
+> This specific command is just for this project, and you can find the declaration of this command in `docker-compose.yml` paired with the final line of the `Dockerfile`.
 
 3. Run test script
 ```bash
@@ -77,6 +79,10 @@ They are a little annoying, but I belive in you. Docker needs WSL to work, so do
 - `notebooks/` - Jupyter notebooks for experiments
 
 # Development
+
+> [!NOTE]
+> I will get around to making this section make more sense. For now, ignore it.
+
 Start Jupyter notebook:
 ```bash
     docker-compose run --rm -p 8888:8888 transformer \
