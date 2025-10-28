@@ -86,6 +86,7 @@ These steps are what you will do in the root directory of the project after clon
 
 > [!note]
 > I will get around to making this section make more sense. For now, ignore it.
+> This is a test update.
 
 Start Jupyter notebook:
 ```bash
