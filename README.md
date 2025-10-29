@@ -78,9 +78,11 @@ These steps are what you will do in the root directory of the project after clon
   - `transformer.py` - Transformer model implementation
   - `train.py` - Training script
   - `utils.py` - Utility functions
+  - `hello_world.py` - Hello World file to test in Docker
 - `data/` - Datasets (not committed to Git)
 - `models/` - Saved model checkpoints (not committed to Git)
 - `notebooks/` - Jupyter notebooks for experiments
+- `stim_files/` - Stim files for creating reptition codes, surface codes (maybe?)
 
 # Development
 
