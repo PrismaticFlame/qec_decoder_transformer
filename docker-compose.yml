@@ -6,6 +6,7 @@ services:
       - ./data:/app/data
       - ./models:/app/models
       - ./notebooks:/app/notebooks
+      - ./stim_files:/app/stim_files
     ports:
       - "8888:8888" # For Jupyter
     stdin_open: true # Add this for interactive shell
