@@ -32,4 +32,6 @@ Thumbs.db
 logs/
 
 # Stim data
-stim/data/*
+# Ignore CSV and NPZ files in stim_files/data/
+stim_files/data/*.csv
+stim_files/data/*.npz
