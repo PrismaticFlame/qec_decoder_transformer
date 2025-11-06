@@ -21,51 +21,62 @@ These steps are what you will do in the root directory of the project after clon
 **1. Build image**
 > [!warning]
 > DON'T DO THIS YET. READ FIRST.
-```bash
+
+```sh
     docker-compose build
 ```
 
 **2. Enter image**
-```bash
+
+```sh
     docker-compose run --rm transformer bash
 ```
+
 > [!tip]
 > The `docker-compose run --rm transformer bash` command is a specific command to just this project, and you can find the declaration of this command in `docker-compose.yml` paired with the final line of the `Dockerfile`.
 
 **3. Run test script**
-```bash
+
+```sh
     python src/hello_world.py
 ```
 
 **4. Exit image**
-```bash
+
+```sh
     exit
 ```
 
 # Setup
 
 **1. Clone the repository**
-```bash
+
+```sh
     git clone https://github.com/PrismaticFlame/qec_decoder_transformer.git
     cd transformer-project
 ```
 
 **2. Build Docker container:**
-```bash
+
+```sh
     docker-compose build
 ```
+
 > [!NOTE]
 > `docker-compose build` took quite a while on my laptop, around 10-12 minutes. Prepare for this to take a while. Thankfully this huge, long process only happens once. If any changes happen in `Dockerfile`, `requirements.txt`, or `docker-compose.yml`, run this command again and it will take under a minute (hopefully).
 
 **3. Run container:**
-```bash
+
+```sh
     docker-compose run --rm transformer bash
 ```
 
 **4. Inside container, test to make sure it's working:**
-```bash
+
+```sh
     python src/hello_world.py
 ```
+
 > [!note]
 > `python src/hello_world.py` is the general form of how we will run our scripts. For the majority of the project, we will be using Python so we will be mainly using the `python` command, followed by where the script is.
 
@@ -86,12 +97,38 @@ These steps are what you will do in the root directory of the project after clon
 
 # Development
 
-> [!note]
-> I will get around to making this section make more sense. For now, ignore it.
-> This is a test update.
+## Branches
+
+When committing to the project, we will use branches for different issues. The naming convention for how we want to do this can be discussed and changed, but for the first while let's stick with this:
+- "Stim/..." - relating to Stim files, data, and anything stim related
+- "ML/..." - related to our transformer
+- Anything else we want, we can add.
+
+The idea would be that we commit to our new branch relating to whatever issue we are dealing with, and a somewhat short but descriptive branch title. For example:
+- branch Stim/data_generation
+- branch ML/weight_testing
+
+This way we can keep things organized. Also, I am still new to this and how to properly utilize branches, so we will figure it out together!
+
+As for actually comitting to branches, the command is:
+
+```sh
+git checkout -b [issue/issue_name]
+```
+
+This command will both create a new branch, as well as move to that new branch. Then you follow the normal commit procedure!
+
+```sh
+git add .  # add all changed files, you can specify certain files if you like
+git commit -m "Message"
+git push -u [issue/issue_name]
+```
+
+If there are any pressing issues, we can just reach out to each other and deal with it either individually or hop in a call/meet in person. Otherwise, we can create issues and resolve them as we go, and I will document that process more here in the future once we learn more about it!
 
 Start Jupyter notebook:
-```bash
+
+```sh
     docker-compose run --rm -p 8888:8888 transformer \
     jupyter notebook --ip=0.0.0.0 --allow-root --no-browser
 ```
