@@ -126,12 +126,31 @@ git push -u [issue/issue_name]
 
 If there are any pressing issues, we can just reach out to each other and deal with it either individually or hop in a call/meet in person. Otherwise, we can create issues and resolve them as we go, and I will document that process more here in the future once we learn more about it!
 
-Start Jupyter notebook:
+## Jupyter Notebooks
+
+Depending on the work you are doing, there are a few options that are available to us on how to run Jupyter Notebooks. For now, I am going to list the steps that are best taken when developing/running Jupyter notebooks right now. 
+
+> [!NOTE]
+> Small aside: In the .gitignore there is a line the removes all notebooks in the `notebooks/` directory, but I have uncommented that for now. If there comes a point in the future when we are rampantly creating and using notebooks left, right, and center, then we can untrack those notebooks. Until then, notebooks will be put on the repo.
+
+Here's the main idea: We need to start the container, then within the container start a Jupyter Notebook server. After doing that, we can access our Jupyter Notebooks on a local server that will be on your machine. Here's the steps.
+
+1. Start the container
+> [!IMPORTANT]
+> This is different than how we have been running the container before! This command starts the Docker container and just keeps it running, it doesn't actually give a bash into the container like with the other commands.
 
 ```sh
-    docker-compose run --rm -p 8888:8888 transformer \
-    jupyter notebook --ip=0.0.0.0 --allow-root --no-browser
+docker-compose up -d
 ```
+
+2. Start Jupyter Notebook server:
+
+```sh
+docker-compose exec transformer jupyter notebook --ip=0.0.0.0 --port=8888 --no-browser --allow-root --NotebookApp.token=''
+```
+
+This starts the server that you will access! However, what the h*ll do you do now? Well, you'll head to your browser and access the server there at this URL: `http://localhost:8888`.
+All things you do in the Jupyter Notebook in the server will be reflect in your files on your puter, so don't worry about syncing between the server and your machine.
 
 # Team Members
 - Tzu-Chen Chiu
