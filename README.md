@@ -154,6 +154,6 @@ All things you do in the Jupyter Notebook in the server will be reflect in your 
 
 # Team Members
 - Tzu-Chen Chiu
-- Arjun Sivakumar
+- Arjun Sivakumar (Git push check)
 - Mara Schimmel
 - Christopher Williams
