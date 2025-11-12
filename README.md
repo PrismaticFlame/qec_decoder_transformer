@@ -126,7 +126,7 @@ git commit -m "Message"
 However, now that we have a new branch, we must set the new branch as the remote upstream like this:
 
 ```sh
-git push --set-upstream origin ML/brt
+git push --set-upstream origin [issue/issue_name]
 ```
 
 This will set the new branch and set it as the upstream, as well as push to that branch in one command.
