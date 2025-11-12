@@ -121,8 +121,15 @@ This command will both create a new branch, as well as move to that new branch. 
 ```sh
 git add .  # add all changed files, you can specify certain files if you like
 git commit -m "Message"
-git push -u [issue/issue_name]
 ```
+
+However, now that we have a new branch, we must set the new branch as the remote upstream like this:
+
+```sh
+git push --set-upstream origin ML/brt
+```
+
+This will set the new branch and set it as the upstream, as well as push to that branch in one command.
 
 If there are any pressing issues, we can just reach out to each other and deal with it either individually or hop in a call/meet in person. Otherwise, we can create issues and resolve them as we go, and I will document that process more here in the future once we learn more about it!
 
