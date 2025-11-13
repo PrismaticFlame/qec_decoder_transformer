@@ -462,6 +462,9 @@ def main():
     
     predictions = torch.cat(all_predictions, dim=0)
     actuals = torch.cat(all_actuals, dim=0)
+
+    # Use only the last 24 time steps for predictions
+    predictions = predictions[:, -24:, :]  # Shape: (10455, 24, 1)
     
     # Inverse transform for real temperature values
     pred_flat = predictions.reshape(-1, 1).numpy()
