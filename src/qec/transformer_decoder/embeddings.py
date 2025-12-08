@@ -19,6 +19,7 @@ class StabilizerEmbedding(nn.Module):
         self.stab_emb = nn.Embedding(num_stab, d_model)
         self.cycle_emb = nn.Embedding(num_cycles, d_model)
         self.val_emb = nn.Embedding(2, d_model)  # syndrome bit 0/1
+        self.analog_proj = nn.Linear(1, d_model) # float syndrome
 
     def forward(self, syndrome, stab_id, cycle_id):
         """
@@ -51,6 +52,10 @@ class StabilizerEmbedding(nn.Module):
 
         e_stab = self.stab_emb(stab_id)    # (B, L, d_model)
         e_cycle = self.cycle_emb(cycle_id) # (B, L, d_model)
-        e_val = self.val_emb(syndrome)     # (B, L, d_model)
+        if syndrome.is_floating_point():
+            # syndrome: (B, L) -> (B, L, 1)
+            e_val = self.analog_proj(syndrome.unsqueeze(-1))  # -> (B, L, d_model)
+        else:
+            e_val = self.val_emb(syndrome.long())   
 
         return e_stab + e_cycle + e_val

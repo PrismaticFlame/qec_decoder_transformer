@@ -12,7 +12,7 @@ class SyndromeDataset(Dataset):
     rounds:           number of measurement rounds used in Stim circuit
     """
 
-    def __init__(self, detector_samples: np.ndarray, logical_labels: np.ndarray, rounds: int):
+    def __init__(self, detector_samples: np.ndarray, logical_labels: np.ndarray, distance: int, rounds: int, measurement: bool):
         # to numpy
         detector_samples = np.asarray(detector_samples)
         logical_labels = np.asarray(logical_labels)
@@ -26,27 +26,39 @@ class SyndromeDataset(Dataset):
         assert detector_samples.shape[0] == logical_labels.shape[0], \
             "Number of shots must match between detector_samples and logical_labels"
 
-        self.dets = torch.from_numpy(detector_samples).long()   # (N, L)
+        self.dets = torch.from_numpy(detector_samples).float()   # (N, L)
         self.labels = torch.from_numpy(logical_labels).float()  # (N, 1) for BCEWithLogitsLoss
 
         # ---- detector / stabilizer layout ----
         self.num_shots, self.num_detectors = self.dets.shape
         self.num_cycles = rounds
+        self.distance = distance
+        if not measurement:
+            assert self.num_detectors % self.num_cycles == 0, \
+                f"num_detectors={self.num_detectors} not divisible by rounds={self.num_cycles}"
 
-        assert self.num_detectors % self.num_cycles == 0, \
-            f"num_detectors={self.num_detectors} not divisible by rounds={self.num_cycles}"
+            self.num_stab_per_round = self.num_detectors // self.num_cycles
 
-        self.num_stab_per_round = self.num_detectors // self.num_cycles
+            # map detector index j -> (stab_id, cycle_id)
+            stab_id = np.array(
+                [j % self.num_stab_per_round for j in range(self.num_detectors)],
+                dtype=np.int64,
+            )
+            cycle_id = np.array(
+                [j // self.num_stab_per_round for j in range(self.num_detectors)],
+                dtype=np.int64,
+            )
+        else:
+            self.num_stab_per_round = (self.num_detectors-9) // self.num_cycles
 
-        # map detector index j -> (stab_id, cycle_id)
-        stab_id = np.array(
-            [j % self.num_stab_per_round for j in range(self.num_detectors)],
-            dtype=np.int64,
-        )
-        cycle_id = np.array(
-            [j // self.num_stab_per_round for j in range(self.num_detectors)],
-            dtype=np.int64,
-        )
+            # map detector index j -> (stab_id, cycle_id)
+            
+            stab_id = np.zeros(self.num_detectors, dtype=np.int64)
+            cycle_id = np.zeros(self.num_detectors, dtype=np.int64)
+            physical_qubit_measures = self.distance**2
+            for i in range(physical_qubit_measures, self.num_detectors):
+                stab_id[i] = (i - physical_qubit_measures) % self.num_stab_per_round
+                cycle_id[i] = (i - physical_qubit_measures) // self.num_stab_per_round
 
         self.stab_id = torch.from_numpy(stab_id)    # (L,)
         self.cycle_id = torch.from_numpy(cycle_id)  # (L,)

@@ -84,6 +84,7 @@ class QECAlphaTransformer(nn.Module):
         self,
         num_stab: int,
         num_cycles: int,
+        distance: int = 3,
         d_model: int = 256,
         nhead: int = 4,
         num_transformer_layers: int = 3,

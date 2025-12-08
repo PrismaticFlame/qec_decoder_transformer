@@ -28,12 +28,16 @@ def main():
     # 1. Load Stim-generated dataset
     dets = np.loadtxt("stim_files/data/detector_samples.csv",
                       delimiter=",", dtype=np.uint8)
+    
+    soft_measurements = np.loadtxt("stim_files/data/gausian_soft_mesurements.csv",
+                      delimiter=",", dtype=np.float32)
     logs = np.loadtxt("stim_files/data/logical_labels.csv",
                       delimiter=",", dtype=np.uint8)
 
     rounds = 5  # MUST match your Stim gen_dem() parameter
 
-    full_dataset = SyndromeDataset(dets, logs, rounds=rounds)
+    # full_dataset = SyndromeDataset(dets, logs, distance=3 rounds=rounds, measurements=False)
+    full_dataset = SyndromeDataset(soft_measurements, logs, distance=3, rounds=rounds, measurement=True)
     N = len(full_dataset)
     print(f"Total shots: {N}, num_detectors: {full_dataset.num_detectors}, "
           f"num_stab_per_round: {full_dataset.num_stab_per_round}, "
@@ -52,6 +56,7 @@ def main():
     model = QECAlphaTransformer(
         num_stab=full_dataset.num_stab_per_round,
         num_cycles=full_dataset.num_cycles,
+        distance=3,
         d_model=256,
         nhead=4,
         num_transformer_layers=3,
