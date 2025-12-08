@@ -1,21 +1,46 @@
+# services:
+#   transformer:
+#     build: .
+#     volumes:
+#       - ./src:/app/src
+#       - ./data:/app/data
+#       - ./models:/app/models
+#       - ./notebooks:/app/notebooks
+#       - ./stim_files:/app/stim_files
+#     ports:
+#       - "8888:8888" # For Jupyter
+#     stdin_open: true # Add this for interactive shell
+#     tty: true        # Add this for interactive shell
+#     command: bash
+#     # deploy:
+#     #   resources:
+#     #     reservations:
+#     #       devices:
+#     #         - driver: nvidia
+#     #           count: all
+#     #           capabilities: [gpu]
+
+version: "3.9"
+
 services:
-  transformer:
-    build: .
+  transformer-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: transformer-dev:latest
+    container_name: transformer-dev
+    working_dir: /workspace
+    # Mount your local project into the container
     volumes:
-      - ./src:/app/src
-      - ./data:/app/data
-      - ./models:/app/models
-      - ./notebooks:/app/notebooks
-      - ./stim_files:/app/stim_files
-    ports:
-      - "8888:8888" # For Jupyter
-    stdin_open: true # Add this for interactive shell
-    tty: true        # Add this for interactive shell
+      - ./:/workspace
+    # Enable GPU access (requires NVIDIA Container Toolkit on host)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: ["gpu"]
+              driver: nvidia
+              count: "all"
+    stdin_open: true
+    tty: true
     command: bash
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]

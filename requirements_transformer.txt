@@ -1,0 +1,10 @@
+jupyter
+notebook
+numpy
+torchsummary
+stim
+pymatching
+# add any others you need:
+matplotlib
+# tqdm
+# transformers
