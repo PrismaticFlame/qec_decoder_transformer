@@ -1,0 +1,61 @@
+Attention bias 只用 Manhattan：❌ 不對齊（論文明確還有 coords/offset/type + event indicators）
+Next-stab loss 用 cosine annealing：⚠️ 論文未明講（論文講的是 aux loss down-weight；cosine 是 LR 用於 scaling）
+你現在的 attention code softmax(...) 沒有回傳 weights。
+你要在 AttentionWithBiasHead.forward 裡把 A 回傳（或存到 buffer），例如：
+return out, A
+或 self.last_attn = A（debug 用
+
+真正的 token-level soft input pipeline（analog/LLR → analog_proj）
+leakage masking（尤其 terminal round）
+LER per round + scaling sweep（rounds=25，d=3/5/7）+ baseline decoder 對照
+
+
+
+leakage probability
+p_leak_stab = 1e-3      # 0.1%
+p_leak_data = 3e-3      # 0.3%
+最後一輪用不同的 embedding
+tqdm 進度條
+wandb
+要記得改成25 cycle 
+model.load_state_dict(checkpoint['model_state_dict'])
+
+# 恢復讀書節奏（優化器狀態）
+optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+
+train: shuffle=true,  optimizer.zero_grad() 
+val, test: shuffle=false,  with torch.no_grad():
+Conformer
+Gated Dense Block
+# 在 train.py 中初始化
+core = RNNCore(config)
+decoder = SyndromeRNNDecoder(core, config.d_model, config.block_size)
+
+# 前向傳播
+logits = decoder(syndrome_batch, bias_batch)
+
+qec/
+├── transformer_decoder/
+│   ├── model.py          # Algorithm 1–5（RNNCore / Attention / CNN）
+│   ├── parameter.py      # 所有超參數（唯一來源）
+│   ├── dataset.py        # Dataset（SyndromeDataset...）
+│   ├── dataset_from_layout.py
+│   ├── train.py          # Training loop（optimizer 在這）
+│   ├── eval.py           # test, val / LER 計算（不碰 optimizer）ema.apply_to(model)
+│   ├── utils.py          # 小工具（計算不同 Cycle (3, 5, 7...) 的 LER, 計算擬合的 R2、斜率以及截距的標準差 σ, reshape處理一維 L 與二維 Grid 之間的 scatter 和 gather 索引映射）
+│   └── __init__.py
+│
+├── stim_files/
+│   └── data/
+│       ├── detector_samples.csv
+│       ├── gaussian_soft_measurements.csv
+│       ├── logical_labels.csv
+│       └── layout.json
+│
+└── run_train.py           # entry point（main）
+
+
+np.ndarray   = 類別（型別）
+np.array()   = 建立 ndarray 的函式
+np.asarray() = 建立 ndarray，但盡量不 copy（效能好）
+
