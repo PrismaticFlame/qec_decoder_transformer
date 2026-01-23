@@ -26,24 +26,12 @@ def compute_ler_from_logits(logits, labels):
         ler = errors.mean().item()
     return ler
 
-def train(data, logs, measurement=False):
+def train(data, logs, distance=3, rounds=5, measurement=False):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Using device:", device)
 
-    # # 1. Load Stim-generated dataset
-    # dets = np.loadtxt("stim_files/data/detector_samples.csv",
-    #                   delimiter=",", dtype=np.uint8)
+    full_dataset = SyndromeDataset(data, logs, distance=distance, rounds=rounds, measurement=measurement)
     
-    # soft_measurements = np.loadtxt("stim_files/data/gausian_soft_mesurements.csv",
-    #                   delimiter=",", dtype=np.float32)
-    # logs = np.loadtxt("stim_files/data/logical_labels.csv",
-    #                   delimiter=",", dtype=np.uint8)
-
-    rounds = 5  # MUST match your Stim gen_dem() parameter
-
-    full_dataset = SyndromeDataset(data, logs, distance=3, rounds=rounds, measurement=measurement)
-    # full_dataset = SyndromeDataset(dets, logs, distance=3, rounds=rounds, measurement=False)
-    # full_dataset = SyndromeDataset(soft_measurements, logs, distance=3, rounds=rounds, measurement=True)
     N = len(full_dataset)
     print(f"Total shots: {N}, num_detectors: {full_dataset.num_detectors}, "
           f"num_stab_per_round: {full_dataset.num_stab_per_round}, "
@@ -62,7 +50,7 @@ def train(data, logs, measurement=False):
     model = QECAlphaTransformer(
         num_stab=full_dataset.num_stab_per_round,
         num_cycles=full_dataset.num_cycles,
-        distance=3,
+        distance=distance,
         d_model=256,
         nhead=4,
         num_transformer_layers=3,
@@ -152,13 +140,11 @@ def train(data, logs, measurement=False):
     print("=" * 75)
     return best_ler, best_epoch
 
-def predict(data, logs, measurement=False):
+def predict(data, logs, distance=3, rounds=5, measurement=False):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Using device:", device)
     
-    rounds = 5  # MUST match your Stim gen_dem() parameter
-    
-    full_dataset = SyndromeDataset(data, logs, distance=3, rounds=rounds, measurement=measurement)
+    full_dataset = SyndromeDataset(data, logs, distance=distance, rounds=rounds, measurement=measurement)
     # 3. Build model
     model = QECAlphaTransformer(
         num_stab=full_dataset.num_stab_per_round,

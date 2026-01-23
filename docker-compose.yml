@@ -1,25 +1,3 @@
-# services:
-#   transformer:
-#     build: .
-#     volumes:
-#       - ./src:/app/src
-#       - ./data:/app/data
-#       - ./models:/app/models
-#       - ./notebooks:/app/notebooks
-#       - ./stim_files:/app/stim_files
-#     ports:
-#       - "8888:8888" # For Jupyter
-#     stdin_open: true # Add this for interactive shell
-#     tty: true        # Add this for interactive shell
-#     command: bash
-#     # deploy:
-#     #   resources:
-#     #     reservations:
-#     #       devices:
-#     #         - driver: nvidia
-#     #           count: all
-#     #           capabilities: [gpu]
-
 version: "3.9"
 
 services:

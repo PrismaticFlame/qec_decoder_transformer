@@ -1,25 +1,3 @@
-# FROM python:3.10-slim
-
-# WORKDIR /app
-
-# RUN apt-get update && apt-get install -y \
-#     git \
-#     build-essential \
-#     tmux \
-#     && rm -rf /var/lib/apt/lists/*
-
-# RUN pip install --upgrade pip
-
-# # Copy requirements and install Python packages
-# COPY requirements.txt .
-# RUN pip install --no-cache-dir -r requirements.txt
-
-# # Copy project files
-# COPY . .
-
-# CMD ["bash"]
-
-# CUDA runtime only (no heavy dev toolkit) on Ubuntu 22.04
 FROM nvidia/cuda:12.1.0-runtime-ubuntu22.04
 
 # Avoid interactive prompts
