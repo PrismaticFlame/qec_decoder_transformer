@@ -22,9 +22,44 @@ import torch.nn as nn
 # Import from local modules
 from model import AlphaQubitLikeModel, ScatteringResidualConvBlock
 from dataset import SyndromeDataset, make_loader
+from collections import Counter
 from parameter import ScalingConfig, ModelConfigScaling, build_scaling_config
 from utils import AttentionBiasProvider, ManhattanDistanceBias
 from train import train
+
+
+def compute_effective_S(layout: Dict[str, Any]) -> int:
+    """
+    Compute the effective S (min stabilizers per cycle) from layout.
+
+    Due to boundary effects in surface code, the first and last cycles
+    may have fewer stabilizers than the middle cycles. The model's
+    cycle_index builder truncates all cycles to the minimum.
+    """
+    cycle_ids = layout["cycle_id"]
+    cycle_counts = Counter(cycle_ids)
+    # Minimum number of stabilizers across all cycles
+    return min(cycle_counts.values())
+
+
+def get_stabilizers_for_effective_S(layout: Dict[str, Any], effective_S: int) -> list:
+    """
+    Get the stabilizer IDs that are present in the cycles with minimum count.
+    This returns the stabilizer IDs that will actually be used at runtime.
+    """
+    cycle_ids = layout["cycle_id"]
+    stab_ids = layout["stab_id"]
+
+    # Find which cycle has the minimum count
+    cycle_counts = Counter(cycle_ids)
+    min_cycle = min(cycle_counts, key=cycle_counts.get)
+
+    # Get stabilizer IDs for that cycle (sorted)
+    stabs_in_min_cycle = sorted([
+        stab_ids[i] for i in range(len(stab_ids)) if cycle_ids[i] == min_cycle
+    ])
+
+    return stabs_in_min_cycle[:effective_S]
 
 
 def build_conv_block(
@@ -50,40 +85,67 @@ def build_conv_block(
     y_coords = np.array(layout["y"], dtype=np.float32)
     
     # Build coord_to_index and index_to_coord mappings
-    # For surface code, we need to map from (i, j) grid coordinates to detector indices
+    # For surface code, we need to map from (i, j) grid coordinates to stabilizer indices
     # The grid size is (d+1) x (d+1)
+    # IMPORTANT: The ConvBlock operates on S stabilizers per cycle, not L total detectors
+    # Due to boundary effects, first/last cycles may have fewer stabilizers, so we use
+    # the effective S (minimum across all cycles) to match runtime behavior.
     H = W = distance + 1
-    
+
+    # Compute effective S (minimum stabilizers per cycle)
+    effective_S = compute_effective_S(layout)
+    active_stab_ids = get_stabilizers_for_effective_S(layout, effective_S)
+
+    # Get unique stabilizer coordinates: for each active stab_id, find its (x, y) position
+    stab_ids_arr = np.array(layout["stab_id"])
+    num_stab = layout["num_stab"]  # Total unique stabilizers
+
+    # Find representative coordinates for each unique stabilizer
+    stab_x_all = np.zeros(num_stab, dtype=np.float32)
+    stab_y_all = np.zeros(num_stab, dtype=np.float32)
+    stab_found = np.zeros(num_stab, dtype=bool)
+
+    for idx in range(len(stab_ids_arr)):
+        sid = stab_ids_arr[idx]
+        if not stab_found[sid]:
+            stab_x_all[sid] = x_coords[idx]
+            stab_y_all[sid] = y_coords[idx]
+            stab_found[sid] = True
+
+    # Only use coordinates for active stabilizers (those in all cycles)
+    stab_x = np.array([stab_x_all[sid] for sid in active_stab_ids], dtype=np.float32)
+    stab_y = np.array([stab_y_all[sid] for sid in active_stab_ids], dtype=np.float32)
+
     # Quantize coordinates to grid positions
     coord_quant = layout.get("coord_quant", 0.5)
-    x_quantized = np.round(x_coords / coord_quant) * coord_quant
-    y_quantized = np.round(y_coords / coord_quant) * coord_quant
-    
+    x_quantized = np.round(stab_x / coord_quant) * coord_quant
+    y_quantized = np.round(stab_y / coord_quant) * coord_quant
+
     # Map to grid indices (i, j) where i, j in [0, H-1]
     # Normalize coordinates to [0, H-1] range
     x_min, x_max = x_quantized.min(), x_quantized.max()
     y_min, y_max = y_quantized.min(), y_quantized.max()
-    
+
     if x_max > x_min:
         x_norm = (x_quantized - x_min) / (x_max - x_min) * (H - 1)
     else:
         x_norm = np.zeros_like(x_quantized)
-    
+
     if y_max > y_min:
         y_norm = (y_quantized - y_min) / (y_max - y_min) * (W - 1)
     else:
         y_norm = np.zeros_like(y_quantized)
-    
+
     # Round to nearest integer grid position
     i_coords = np.round(x_norm).astype(np.int32).clip(0, H - 1)
     j_coords = np.round(y_norm).astype(np.int32).clip(0, W - 1)
-    
-    # Build mappings
+
+    # Build mappings for effective_S stabilizers (those present in all cycles)
+    # The index here is 0..effective_S-1, matching the runtime tensor shape (B, S, D)
     coord_to_index = {}
     index_to_coord = []
-    
-    L = len(layout["stab_id"])
-    for idx in range(L):
+
+    for idx in range(effective_S):
         i, j = int(i_coords[idx]), int(j_coords[idx])
         coord_to_index[(i, j)] = idx
         index_to_coord.append((i, j))
@@ -305,7 +367,10 @@ def parse_args():
     parser.add_argument("--batch_init", type=int, help="Initial batch size")
     parser.add_argument("--lr", type=float, help="Learning rate")
     parser.add_argument("--seed", type=int, help="Random seed")
-    
+    parser.add_argument("--eval_every", type=int, help="Evaluate every N steps")
+    parser.add_argument("--eval_fit_mode", type=str, choices=["sycamore", "simple"],
+                       default="simple", help="Evaluation mode: sycamore (fit across cycles) or simple (direct LER)")
+
     return parser.parse_args()
 
 
@@ -332,7 +397,11 @@ def main():
         train_cfg.lr = args.lr
     if args.seed:
         train_cfg.seed = args.seed
-    
+    if args.eval_every:
+        train_cfg.eval_every = args.eval_every
+    if args.eval_fit_mode:
+        train_cfg.eval_fit_mode = args.eval_fit_mode
+
     # Load layout
     if args.layout:
         with open(args.layout, "r") as f:

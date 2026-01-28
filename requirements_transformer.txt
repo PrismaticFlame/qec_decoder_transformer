@@ -1,10 +1,22 @@
-jupyter
-notebook
-numpy
+# Core ML
+numpy>=1.24.0
+matplotlib>=3.7.0
+tqdm>=4.65.0
+tensorboard>=2.13.0
+scikit-learn>=1.3.0
 torchsummary
-stim
-pymatching
-# add any others you need:
-matplotlib
-# tqdm
-# transformers
+
+# QEC / Stim (version >= 1.14 required for flattened_operations API)
+stim>=1.14.0
+sinter>=1.14.0
+pymatching>=2.0.0
+
+# Jupyter
+jupyter>=1.0.0
+notebook
+jupyterlab
+
+# Optional - uncomment if needed
+# datasets>=2.14.0
+# transformers>=4.35.0
+# wandb

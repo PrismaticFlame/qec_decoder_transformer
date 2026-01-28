@@ -373,23 +373,29 @@ class AttentionBiasProvider(nn.Module):
     ) -> torch.Tensor:
         """
         Build event indicators from syndrome values.
-        
+
         Args:
             syndrome: (B, L) detection events
-            cycle_index: (T, S) indices mapping
+            cycle_index: (T, S) or (B, T, S) indices mapping (batched by DataLoader)
             t: current cycle index
-            
+
         Returns:
             event_features: (B, S, S, indicator_features)
         """
         B = syndrome.size(0)
+
+        # Handle batched cycle_index: DataLoader stacks (T, S) -> (B, T, S)
+        # Since cycle_index is the same for all samples, take first row if batched
+        if cycle_index.dim() == 3:
+            cycle_index = cycle_index[0]  # (B, T, S) -> (T, S)
+
         S = cycle_index.size(1)
-        
+
         if t >= cycle_index.size(0):
             # Return zeros if cycle doesn't exist
             return torch.zeros(B, S, S, self.event_proj.in_features if self.event_proj else 0,
                              device=syndrome.device, dtype=syndrome.dtype)
-        
+
         # Get syndrome values for current cycle
         idx_t = cycle_index[t]  # (S,)
         synd_t = syndrome[:, idx_t]  # (B, S)

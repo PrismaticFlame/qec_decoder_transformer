@@ -75,6 +75,7 @@ class ScalingConfig:
 
     # Evaluation cycles
     eval_cycles: Tuple[int, ...] = (3, 5, 7, 9, 11, 13, 15, 25)
+    eval_fit_mode: str = "simple"  # "sycamore" for multi-cycle fit, "simple" for direct LER
 
     # ---- Backward-compat alias ----
     # 你原本叫 ema_decay，但其實語意是 alpha=1e-4

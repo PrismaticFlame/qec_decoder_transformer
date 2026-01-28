@@ -20,9 +20,10 @@
 #     #           count: all
 #     #           capabilities: [gpu]
 
-version: "3.9"
+# version: "3.9"
 
 services:
+  # CPU-only version (default)
   transformer-dev:
     build:
       context: .
@@ -30,15 +31,27 @@ services:
     image: transformer-dev:latest
     container_name: transformer-dev
     working_dir: /workspace
-    # Mount your local project into the container
     volumes:
       - ./:/workspace
-    # Enable GPU access (requires NVIDIA Container Toolkit on host)
+    stdin_open: true
+    tty: true
+    command: bash
+
+  # GPU version - use with: docker compose run --rm transformer-gpu bash
+  transformer-gpu:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: transformer-dev:latest
+    container_name: transformer-gpu
+    working_dir: /workspace
+    volumes:
+      - ./:/workspace
     deploy:
       resources:
         reservations:
           devices:
-            - capabilities: ["gpu"]
+            - capabilities: [gpu]
               driver: nvidia
               count: "all"
     stdin_open: true

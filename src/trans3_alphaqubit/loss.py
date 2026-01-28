@@ -212,7 +212,9 @@ class QECMultiTaskLoss(nn.Module):
             )
 
         # ---- next-stabilizer head (optional) ----
-        s_loss = logical_logits.new_zeros(())  # scalar 0 on same device/dtype
+        # Use a reference tensor to get device/dtype (could be from X/Z mode or legacy mode)
+        ref_tensor = logical_logits_x if logical_logits_x is not None else logical_logits
+        s_loss = ref_tensor.new_zeros(())  # scalar 0 on same device/dtype
         if pred_stabs is not None and true_stabs is not None:
             assert pred_stabs.shape == true_stabs.shape, "pred_stabs and true_stabs must have same shape"
 

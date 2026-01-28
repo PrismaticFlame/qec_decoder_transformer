@@ -10,8 +10,12 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 import numpy as np
 
-from .ema import EMA
-from .utils import fit_line_with_stats, gate_fit_ok
+try:
+    from .ema import EMA
+    from .utils import fit_line_with_stats, gate_fit_ok
+except ImportError:
+    from ema import EMA
+    from utils import fit_line_with_stats, gate_fit_ok
 
 
 # -------------------------

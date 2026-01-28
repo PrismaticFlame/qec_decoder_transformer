@@ -72,13 +72,13 @@ def train(data, logs, measurement=False):
 
     criterion = torch.nn.BCEWithLogitsLoss()
 
-# Lion + Scaling 規格
-optimizer = Lion(
-    model.parameters(),
-    lr=3e-4,              # 建議比 AdamW 稍微小一點；可以再調
-    betas=(0.9, 0.99),    # Lion paper 推薦值
-    weight_decay=1e-7,    # Table S3 Scaling column
-)
+    # Lion + Scaling 規格
+    optimizer = Lion(
+        model.parameters(),
+        lr=3e-4,              # 建議比 AdamW 稍微小一點；可以再調
+        betas=(0.9, 0.99),    # Lion paper 推薦值
+        weight_decay=1e-7,    # Table S3 Scaling column
+    )
 
     # 3.5 start timer
     total_start = time.time()

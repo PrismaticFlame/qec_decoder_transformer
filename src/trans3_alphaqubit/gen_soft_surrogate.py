@@ -1,7 +1,7 @@
 
 import stim
 import numpy as np
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Union
 
 #pretrain: hard input, logical label
 #finetune: soft input, logical label
@@ -12,30 +12,151 @@ _MEAS_OPS = {"M", "MR", "MX", "MY", "MZ", "MPP"}
 
 
 # ----------------------------
-# 1) Parse circuit deps (DETECTOR / OBSERVABLE_INCLUDE) into absolute meas indices 
+# Helper functions for Stim version compatibility
+# ----------------------------
+def _get_inst_name(inst) -> str:
+    """Get instruction name, handling both old tuple format and new CircuitInstruction."""
+    if isinstance(inst, tuple):
+        # Old Stim format: (name, targets, args)
+        return inst[0]
+    else:
+        # New Stim format: CircuitInstruction object
+        return inst.name
+
+
+def _get_inst_targets(inst) -> list:
+    """Get instruction targets, handling both old tuple format and new CircuitInstruction."""
+    if isinstance(inst, tuple):
+        # Old Stim format: (name, targets, args)
+        return inst[1]
+    else:
+        # New Stim format: CircuitInstruction object
+        return inst.targets_copy()
+
+
+def _get_inst_args(inst) -> list:
+    """Get instruction args, handling both old tuple format and new CircuitInstruction."""
+    if isinstance(inst, tuple):
+        # Old Stim format: (name, targets, args)
+        return inst[2] if len(inst) > 2 else []
+    else:
+        # New Stim format: CircuitInstruction object
+        return inst.gate_args_copy()
+
+
+def _target_is_rec(target) -> bool:
+    """Check if target is a record reference."""
+    # Tuple format from flattened_operations(): ('rec', -4)
+    if isinstance(target, tuple) and len(target) >= 1:
+        return target[0] == 'rec'
+
+    # New Stim API
+    if hasattr(target, 'is_rec'):
+        return target.is_rec()
+    if hasattr(target, 'is_measurement_record_target'):
+        return target.is_measurement_record_target
+
+    # Old Stim format: stim.GateTarget objects
+    # Check string representation
+    s = str(target)
+    if 'rec[' in s.lower():
+        return True
+
+    # Old format might also use stim.target_rec() which shows as "rec[-N]"
+    if hasattr(target, '__class__') and 'GateTarget' in target.__class__.__name__:
+        return 'rec[' in s
+
+    # Floats are coordinates, not rec references
+    if isinstance(target, (float, int)):
+        return False
+
+    return False
+
+
+def _get_target_value(target) -> int:
+    """Get the value from a target (for rec references, this is the negative offset)."""
+    # Tuple format from flattened_operations(): ('rec', -4)
+    if isinstance(target, tuple) and len(target) >= 2 and target[0] == 'rec':
+        return int(target[1])
+
+    # New Stim API
+    if hasattr(target, 'value'):
+        return int(target.value)
+    if hasattr(target, 'val'):
+        return int(target.val)
+
+    # Parse from string representation like "rec[-1]"
+    s = str(target)
+    if 'rec[' in s:
+        import re
+        match = re.search(r'rec\[(-?\d+)\]', s)
+        if match:
+            return int(match.group(1))
+
+    # If it's an int, return it (but this shouldn't happen for rec targets)
+    if isinstance(target, int):
+        return target
+
+    return 0
+
+
+# ----------------------------
+# 1) Parse circuit deps (DETECTOR / OBSERVABLE_INCLUDE) into absolute meas indices
 # ----------------------------
 
-def _count_measurement_results(inst: stim.CircuitInstruction) -> int:
+def _count_measurement_results(inst) -> int:
     """
     Return how many measurement results this instruction appends to the measurement record.
 
     IMPORTANT:
-    - For M/MX/MY/MZ/MR/... : one result per measured qubit target 所以用target_copy ex. X0*X1*X2, Z3*Z4
-    - For MPP: one result per target_group 
+    - For M/MX/MY/MZ/MR/... : one result per measured qubit target
+    - For MPP: one result per target_group
     - Other ops: 0
     """
-    name = inst.name
+    name = _get_inst_name(inst)
+    targets = _get_inst_targets(inst)
+
     if name == "MPP":
-        return len(inst.target_groups())
+        if hasattr(inst, 'target_groups'):
+            return len(inst.target_groups())
+        else:
+            # Count separators to determine groups
+            count = 1
+            for t in targets:
+                if hasattr(t, 'is_combiner') and t.is_combiner():
+                    pass  # combiners don't add groups
+                elif str(t) == '*':
+                    pass  # multiplier
+            return len(targets)  # Fallback
     if name in _MEAS_OPS:
-        # For these measurement instructions, each qubit target corresponds to one measurement result.
-        return len(inst.targets_copy())
+        return len(targets)
     return 0
 
 
 # ----------------------------
 # 2) Correctly extract DETECTOR -> absolute measurement indices
 # ----------------------------
+def _count_meas_targets(name: str, targets: list) -> int:
+    """Count how many measurement results an instruction produces."""
+    if name not in _MEAS_OPS:
+        return 0
+
+    # For measurement ops, count only qubit targets (integers or GateTargets with qubit indices)
+    # Filter out any non-qubit targets
+    count = 0
+    for t in targets:
+        # Skip if it's a rec reference or coordinate
+        if _target_is_rec(t):
+            continue
+        # In old format, qubit targets are integers or GateTarget with qubit index
+        s = str(t)
+        if 'rec[' in s.lower():
+            continue
+        # It's a qubit target
+        count += 1
+    return count
+
+
 def extract_detector_rec_dependencies(circ: stim.Circuit) -> List[List[int]]:
     """
     Returns:
@@ -46,24 +167,21 @@ def extract_detector_rec_dependencies(circ: stim.Circuit) -> List[List[int]]:
     meas_count = 0  # how many measurements have happened so far in the flattened circuit
 
     for inst in circ.flattened_operations():
-        name = inst.name
+        name = _get_inst_name(inst)
+        targets = _get_inst_targets(inst)
 
         # Count how many measurement results this instruction appends
-        # Stim appends one result per target for M / MR / MX / MY / MPP.
-        if name in {"M", "MR", "MX", "MY", "MPP"}:
-            meas_count += len(inst.targets_copy())
+        if name in _MEAS_OPS:
+            meas_count += _count_meas_targets(name, targets)
 
         if name == "DETECTOR":
             idxs: List[int] = []
-            for t in inst.targets_copy():
-                if t.is_rec():
-                    # For rec[-k], t.value is typically negative (e.g. -1).
-                    # Absolute index = meas_count + t.value  (since t.value is negative)
-                    abs_i = meas_count + int(t.value)
+            for t in targets:
+                if _target_is_rec(t):
+                    # For rec[-k], value is typically negative (e.g. -1).
+                    # Absolute index = meas_count + value  (since value is negative)
+                    abs_i = meas_count + _get_target_value(t)
                     idxs.append(abs_i)
-                else:
-                    # coords / separators are not rec targets; ignore
-                    pass
             deps.append(sorted(idxs))
 
     D = int(circ.num_detectors)
@@ -82,23 +200,29 @@ def extract_observable_rec_dependencies(circ: stim.Circuit) -> List[List[int]]:
     meas_count = 0
 
     for inst in circ.flattened_operations():
-        name = inst.name
+        name = _get_inst_name(inst)
+        targets = _get_inst_targets(inst)
 
-        if name in {"M", "MR", "MX", "MY", "MPP"}:
-            meas_count += len(inst.targets_copy())
+        if name in _MEAS_OPS:
+            meas_count += _count_meas_targets(name, targets)
 
         if name == "OBSERVABLE_INCLUDE":
-            args = inst.gate_args_copy()
-            if len(args) < 1:
-                raise RuntimeError("OBSERVABLE_INCLUDE missing observable index gate arg.")
-            k = int(args[0])
+            args = _get_inst_args(inst)
+            # Handle both list format and single value format
+            if isinstance(args, (list, tuple)):
+                if len(args) < 1:
+                    raise RuntimeError("OBSERVABLE_INCLUDE missing observable index gate arg.")
+                k = int(args[0])
+            else:
+                # Single value (old Stim format returns float directly)
+                k = int(args)
             if not (0 <= k < K):
                 raise RuntimeError(f"Observable index out of range: k={k}, K={K}")
 
             idxs: List[int] = []
-            for t in inst.targets_copy():
-                if t.is_rec():
-                    abs_i = meas_count + int(t.value)
+            for t in targets:
+                if _target_is_rec(t):
+                    abs_i = meas_count + _get_target_value(t)
                     idxs.append(abs_i)
             obs_deps[k].extend(idxs)
 
@@ -339,7 +463,10 @@ def gen_soft_surrogate_dataset(
 
     # Sample raw measurement bits ONCE (single source of truth)
     meas_sampler = circ.compile_sampler()
-    meas_bits = meas_sampler.sample(shots=shots, seed=seed_meas).astype(np.uint8)  # (N,M)
+    # meas_bits = meas_sampler.sample(shots=shots, seed=seed_meas).astype(np.uint8)  # (N,M)
+    meas_bits = meas_sampler.sample(shots=shots).astype(np.uint8)
+
+    #TODO
 
     # Parse deps
     det_deps = extract_detector_rec_dependencies(circ) # 解析電路中所有的 DETECTOR 指令 找出哪些測量位元（measurements）被用來組合出某個偵測事件（detection event）
@@ -509,9 +636,13 @@ if __name__ == "__main__":
     if leakage_mask is not None:
         save_dict["leakage_mask"] = leakage_mask.astype(np.uint8)  # Save as uint8 to save space
     
-    np.savez_compressed("../data/stim_soft_surrogate.npz", **save_dict)
+    import os
+    output_dir = "../../data"
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(output_dir, "stim_soft_surrogate.npz")
+    np.savez_compressed(output_path, **save_dict)
 
-    print("Saved ../data/stim_soft_surrogate.npz")
+    print(f"Saved {output_path}")
     print("det_hard:", det_hard.shape, det_hard.dtype)
     print("det_soft:", det_soft.shape, det_soft.dtype)
     print("obs     :", obs.shape, obs.dtype)

@@ -1,6 +1,9 @@
 # model.py ok done
 from __future__ import annotations
-from .utils import ManhattanDistanceBias
+try:
+    from .utils import ManhattanDistanceBias
+except ImportError:
+    from utils import ManhattanDistanceBias
 import math
 from typing import Dict, Optional, Tuple, List
 
@@ -399,12 +402,19 @@ class AlphaQubitLikeModel(nn.Module):
 
     def forward(self, batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         syndrome = batch["syndrome"]  # (B,L)
-        stab_id = batch["stab_id"]    # (L,)
-        cycle_id = batch["cycle_id"]  # (L,)
+        stab_id = batch["stab_id"]    # (L,) or (B,L) if batched
+        cycle_id = batch["cycle_id"]  # (L,) or (B,L) if batched
 
         if syndrome.dim() != 2:
             raise ValueError(f"syndrome must be (B,L), got {syndrome.shape}")
         B, L = syndrome.shape
+
+        # ---- Handle batched layout tensors (DataLoader stacks them) ----
+        # stab_id and cycle_id are the same for all samples, so take first row if batched
+        if stab_id.dim() == 2:
+            stab_id = stab_id[0]  # (B,L) -> (L,)
+        if cycle_id.dim() == 2:
+            cycle_id = cycle_id[0]  # (B,L) -> (L,)
 
         # ---- Make sure ids are on same device + correct dtype for Embedding/indexing ----
         # Keep syndrome dtype as-is (could be float or int). ids must be long.
@@ -434,8 +444,12 @@ class AlphaQubitLikeModel(nn.Module):
             if torch.any(idx < 0) or torch.any(idx >= L):
                 raise RuntimeError(f"cycle index out of bounds: idx.min={idx.min().item()}, idx.max={idx.max().item()}, L={L}")
 
-        idx_expand = idx.unsqueeze(0).expand(B, T, S)  # (B,T,S)
-        synd_ts = torch.gather(syndrome, dim=1, index=idx_expand)  # (B,T,S)
+        # idx is (T, S), need to gather from syndrome (B, L) -> (B, T, S)
+        # Flatten idx to (T*S,), gather, then reshape
+        idx_flat = idx.view(-1)  # (T*S,)
+        idx_flat_expand = idx_flat.unsqueeze(0).expand(B, -1)  # (B, T*S)
+        synd_flat = torch.gather(syndrome, dim=1, index=idx_flat_expand)  # (B, T*S)
+        synd_ts = synd_flat.view(B, T, S)  # (B, T, S)
 
         # ---- Build per-cycle ids via direct indexing: (T,S) -> (B,T,S) ----
         stab_ts = stab_id[idx].unsqueeze(0).expand(B, T, S)   # (1,T,S)->(B,T,S)
