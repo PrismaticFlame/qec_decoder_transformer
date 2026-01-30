@@ -1,0 +1,257 @@
+#!/usr/bin/env python3
+"""
+gen_basis_data.py - Generate basis-separated hard detector data for QEC decoding
+
+Generates separate X-basis and Z-basis datasets following the AlphaQubit approach:
+each basis gets its own dataset with a single logical observable label.
+
+Usage:
+    python gen_basis_data.py
+    python gen_basis_data.py --distances 3 5 7 --shots 50000
+    python gen_basis_data.py --bases z          # Z-basis only
+    python gen_basis_data.py --output_dir ../../data
+
+Output structure:
+    data/{basis}_basis/d{d}_r{rounds}/train.npz
+    data/{basis}_basis/d{d}_r{rounds}/val.npz
+    data/{basis}_basis/d{d}_r{rounds}/layout.json
+    data/{basis}_basis/d{d}_r{rounds}/info.json
+
+Each .npz contains:
+    - det_hard: (N, D) int8 - Binary detector events
+    - obs: (N, 1) int8 - Single logical error label matching the basis
+"""
+
+import argparse
+import json
+import os
+import sys
+from pathlib import Path
+
+import numpy as np
+import stim
+
+# Add parent directory so we can import layout from trans3_alphaqubit
+sys.path.insert(0, str(Path(__file__).parent.parent / "trans3_alphaqubit"))
+from layout import build_layout_from_circuit, save_layout_json
+
+
+def generate_basis_dataset(
+    basis: str,
+    distance: int,
+    rounds: int,
+    p: float,
+    shots: int,
+    seed: int,
+):
+    """
+    Generate hard detector data for a single basis.
+
+    Args:
+        basis: "x" or "z"
+        distance: Surface code distance
+        rounds: Number of QEC rounds
+        p: Physical error probability
+        shots: Number of samples
+        seed: Random seed for sampling
+
+    Returns:
+        (circuit, det_hard, obs)
+        - circuit: stim.Circuit
+        - det_hard: (N, D) int8 binary detector events
+        - obs: (N, 1) int8 single logical error label
+    """
+    circuit_name = f"surface_code:rotated_memory_{basis}"
+
+    circ = stim.Circuit.generated(
+        circuit_name,
+        distance=distance,
+        rounds=rounds,
+        after_clifford_depolarization=p,
+        before_round_data_depolarization=p,
+        before_measure_flip_probability=p,
+        after_reset_flip_probability=p,
+    )
+
+    sampler = circ.compile_detector_sampler(seed=seed)
+    det_events, obs_flips = sampler.sample(shots, separate_observables=True)
+
+    det_hard = det_events.astype(np.int8)
+    # Take only the primary observable (index 0), which matches the basis
+    obs = obs_flips[:, 0:1].astype(np.int8)
+
+    return circ, det_hard, obs
+
+
+def generate_and_save(
+    basis: str,
+    distance: int,
+    rounds: int,
+    p: float,
+    shots: int,
+    seed: int,
+    train_split: float,
+    output_dir: Path,
+):
+    """Generate data for one (basis, distance, rounds) config and save to disk."""
+    dir_name = f"d{distance}_r{rounds}"
+    dataset_dir = output_dir / f"{basis}_basis" / dir_name
+    dataset_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"\n{'='*60}")
+    print(f"Generating: {basis.upper()}-basis  d={distance}  rounds={rounds}")
+    print(f"  p={p}, shots={shots}, seed={seed}")
+    print(f"  Output: {dataset_dir}")
+    print(f"{'='*60}")
+
+    circ, det_hard, obs = generate_basis_dataset(
+        basis=basis,
+        distance=distance,
+        rounds=rounds,
+        p=p,
+        shots=shots,
+        seed=seed,
+    )
+
+    # Train/val split
+    n_samples = det_hard.shape[0]
+    n_train = int(n_samples * train_split)
+
+    rng = np.random.RandomState(seed)
+    indices = rng.permutation(n_samples)
+    train_idx = indices[:n_train]
+    val_idx = indices[n_train:]
+
+    # Save train data
+    train_path = dataset_dir / "train.npz"
+    np.savez_compressed(
+        train_path,
+        det_hard=det_hard[train_idx],
+        obs=obs[train_idx],
+    )
+
+    # Save val data
+    val_path = dataset_dir / "val.npz"
+    np.savez_compressed(
+        val_path,
+        det_hard=det_hard[val_idx],
+        obs=obs[val_idx],
+    )
+
+    # Save layout
+    layout = build_layout_from_circuit(circ)
+    layout["distance"] = distance
+    layout_path = dataset_dir / "layout.json"
+    save_layout_json(layout, str(layout_path))
+
+    # Compute stats
+    det_rate = det_hard.mean()
+    obs_rate = obs.mean()
+
+    info = {
+        "basis": basis,
+        "distance": distance,
+        "rounds": rounds,
+        "p": p,
+        "shots": shots,
+        "seed": seed,
+        "n_train": len(train_idx),
+        "n_val": len(val_idx),
+        "num_detectors": int(circ.num_detectors),
+        "det_rate": float(det_rate),
+        "obs_rate": float(obs_rate),
+    }
+
+    # Save info
+    info_path = dataset_dir / "info.json"
+    with open(info_path, "w") as f:
+        json.dump(info, f, indent=2)
+
+    print(f"  Detectors: {circ.num_detectors}")
+    print(f"  Train: {len(train_idx)}, Val: {len(val_idx)}")
+    print(f"  det_hard: {det_hard.shape} {det_hard.dtype}")
+    print(f"  obs:      {obs.shape} {obs.dtype}")
+    print(f"  Detection rate:      {det_rate:.4%}")
+    print(f"  Logical error rate:  {obs_rate:.4%}")
+
+    return info
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Generate basis-separated hard detector data for QEC decoding",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+
+    parser.add_argument("--distances", type=int, nargs="+", default=[3, 5, 7],
+                        help="Code distances to generate")
+    parser.add_argument("--rounds_multiplier", type=int, default=2,
+                        help="rounds = distance * multiplier")
+    parser.add_argument("--shots", type=int, default=20000,
+                        help="Number of samples per dataset")
+    parser.add_argument("--p", type=float, default=0.005,
+                        help="Physical error probability")
+    parser.add_argument("--bases", type=str, nargs="+", default=["z", "x"],
+                        choices=["z", "x"],
+                        help="Which bases to generate")
+    parser.add_argument("--output_dir", type=str, default="data",
+                        help="Output root directory (relative to this script)")
+    parser.add_argument("--seed", type=int, default=42,
+                        help="Base random seed")
+    parser.add_argument("--train_split", type=float, default=0.8,
+                        help="Fraction of data for training")
+
+    args = parser.parse_args()
+
+    # Resolve output dir relative to script location
+    script_dir = Path(__file__).parent
+    output_dir = (script_dir / args.output_dir).resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"Output directory: {output_dir}")
+    print(f"Bases: {args.bases}")
+    print(f"Distances: {args.distances}")
+    print(f"Physical error rate: {args.p}")
+
+    all_info = []
+
+    # Use different seeds for different bases to ensure independent samples
+    seed_offset = {"z": 0, "x": 1000}
+
+    for basis in args.bases:
+        for distance in args.distances:
+            rounds = distance * args.rounds_multiplier
+            seed = args.seed + seed_offset[basis] + distance
+
+            info = generate_and_save(
+                basis=basis,
+                distance=distance,
+                rounds=rounds,
+                p=args.p,
+                shots=args.shots,
+                seed=seed,
+                train_split=args.train_split,
+                output_dir=output_dir,
+            )
+            all_info.append(info)
+
+    # Save master index
+    index_path = output_dir / "index.json"
+    with open(index_path, "w") as f:
+        json.dump(all_info, f, indent=2)
+
+    # Print summary
+    print(f"\n{'='*60}")
+    print("SUMMARY")
+    print(f"{'='*60}")
+    print(f"{'Basis':<8} {'Distance':>8} {'Rounds':>8} {'Shots':>8} {'LER':>12}")
+    print(f"{'-'*52}")
+    for info in all_info:
+        print(f"{info['basis'].upper():<8} {info['distance']:>8} {info['rounds']:>8} "
+              f"{info['shots']:>8} {info['obs_rate']:>12.4%}")
+    print(f"{'='*60}")
+    print(f"Index saved to {index_path}")
+
+
+if __name__ == "__main__":
+    main()

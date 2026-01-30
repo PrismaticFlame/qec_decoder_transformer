@@ -100,6 +100,9 @@ def train(
         "fit_intercept": None,
     }
 
+    # Accumulate training history for post-hoc analysis / plotting
+    history = {"train": [], "eval": []}
+
     wb_on = bool(use_wandb and (wandb is not None))
     if wb_on:
         wandb.init(project="alphaqubit-scaling", name=run_name, config=asdict(cfg))
@@ -237,6 +240,13 @@ def train(
                 "bs": cur_bs,
             })
 
+            history["train"].append({
+                "step": step,
+                "loss": log["loss"],
+                "loss_main": log["loss_main"],
+                "lr": lr,
+            })
+
         # dev eval (unchanged)
         if (step > 0) and (step % cfg.eval_every == 0):
             eval_fit_mode = getattr(cfg, "eval_fit_mode", "sycamore").lower()
@@ -287,6 +297,13 @@ def train(
                 if wb_on:
                     wandb.log({"best/ler": best["ler"], "best/step": best["step"]}, step=step)
 
+            history["eval"].append({
+                "step": step,
+                "dev_ler": dev_ler,
+                "fit_ok": fit_ok,
+                "best_ler": best["ler"],
+            })
+
             model.train()
 
     # restore best into model at end
@@ -300,4 +317,5 @@ def train(
         wandb.log({"best/final_ler": best["ler"], "best/final_step": best["step"]}, step=cfg.num_steps)
         wandb.finish()
 
+    best["history"] = history
     return best

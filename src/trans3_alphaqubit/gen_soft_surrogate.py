@@ -466,7 +466,7 @@ def gen_soft_surrogate_dataset(
     # meas_bits = meas_sampler.sample(shots=shots, seed=seed_meas).astype(np.uint8)  # (N,M)
     meas_bits = meas_sampler.sample(shots=shots).astype(np.uint8)
 
-    #TODO
+    #TODO m2d converter
 
     # Parse deps
     det_deps = extract_detector_rec_dependencies(circ) # 解析電路中所有的 DETECTOR 指令 找出哪些測量位元（measurements）被用來組合出某個偵測事件（detection event）
