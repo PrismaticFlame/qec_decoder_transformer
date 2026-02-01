@@ -153,16 +153,24 @@ class SyndromeDataset(Dataset):
         # ------------------------------------------------
         # build (T,S) cycle_index ONCE for next-stab labels
         # ------------------------------------------------
-        self.T, self.S, self.cycle_index = self._build_cycle_index(self.stab_id, self.cycle_id)
-        # cycle_index: (T,S) long
-        
-        # Build stab_xy for bias provider: extract coordinates for first cycle
-        # (all cycles should have same stabilizer positions)
+        self.T, self.S, self.cycle_index, self.cycle_pad_mask = self._build_cycle_index(self.stab_id, self.cycle_id)
+        # cycle_index: (T, S) long — padded to S_max
+        # cycle_pad_mask: (T, S) bool — True = real token, False = padding
+
+        # Build stab_xy for bias provider: use the cycle with most stabilizers
+        # (S_max), extracting coordinates only for real (non-padded) positions.
         if self._x_coords is not None and self._y_coords is not None and self.S > 0:
-            # Get indices for first cycle
-            idx_0 = self.cycle_index[0]  # (S,)
-            x_0 = self._x_coords[idx_0]  # (S,)
-            y_0 = self._y_coords[idx_0]  # (S,)
+            # Find first cycle that has S stabilizers (a full cycle)
+            for t in range(self.T):
+                if self.cycle_pad_mask[t].all():
+                    idx_full = self.cycle_index[t]  # (S,)
+                    break
+            else:
+                # Fallback: use first cycle, only real positions
+                idx_full = self.cycle_index[0]
+
+            x_0 = self._x_coords[idx_full]  # (S,)
+            y_0 = self._y_coords[idx_full]  # (S,)
             self.stab_xy = torch.stack([x_0, y_0], dim=-1)  # (S, 2)
         else:
             self.stab_xy = None  # Will fall back to ManhattanDistanceBias if not available
@@ -173,7 +181,14 @@ class SyndromeDataset(Dataset):
         Build indices mapping from flat L tokens -> per-cycle (T,S) tokens.
         For each cycle t, select positions where cycle_id == t, then sort by stab_id
         so the per-cycle ordering is consistent across time.
-        If some cycles have fewer tokens, truncate all cycles to the minimum S.
+        Cycles with fewer tokens are padded to S_max using index 0 (masked out
+        downstream via pad_mask). This preserves all detector information.
+
+        Returns:
+            T: number of cycles
+            S: max stabilizers per cycle (S_max)
+            indices: (T, S) long tensor of flat indices into syndrome
+            pad_mask: (T, S) bool tensor, True = real token, False = padding
         """
         if stab_id.dim() != 1 or cycle_id.dim() != 1:
             raise ValueError(f"stab_id and cycle_id must be 1D, got {stab_id.shape}, {cycle_id.shape}")
@@ -187,35 +202,44 @@ class SyndromeDataset(Dataset):
             raise ValueError(f"Invalid T computed from cycle_id.max(): T={T}")
 
         indices_per_t = []
-        S_min = None
+        S_max = 0
 
         for t in range(T):
             idx_t = torch.nonzero(cycle_id == t, as_tuple=False).view(-1)
-            if idx_t.numel() == 0:
-                indices_per_t.append(idx_t)
-                S_min = 0 if S_min is None else min(S_min, 0)
-                continue
-
-            # sort within cycle by stab_id to make stable order
-            idx_t = idx_t[torch.argsort(stab_id[idx_t])]
+            if idx_t.numel() > 0:
+                # sort within cycle by stab_id to make stable order
+                idx_t = idx_t[torch.argsort(stab_id[idx_t])]
             indices_per_t.append(idx_t)
+            S_max = max(S_max, idx_t.numel())
 
-            if S_min is None:
-                S_min = idx_t.numel()
-            else:
-                S_min = min(S_min, idx_t.numel())
-
-        S = int(S_min or 0)
-        if S < 0:
-            raise ValueError(f"Invalid S computed: S={S}")
-
-        # stack (T,S) by truncating each cycle to S
-        if S == 0:
+        S = int(S_max)
+        if S <= 0:
             indices = torch.zeros((T, 0), dtype=torch.long, device=cycle_id.device)
-        else:
-            indices = torch.stack([idx_t[:S] for idx_t in indices_per_t], dim=0).long()
+            pad_mask = torch.zeros((T, 0), dtype=torch.bool, device=cycle_id.device)
+            return T, S, indices, pad_mask
 
-        return T, S, indices
+        # Pad each cycle to S_max; padded positions use index 0 (arbitrary,
+        # masked out later) and are marked False in pad_mask.
+        padded = []
+        masks = []
+        for idx_t in indices_per_t:
+            n = idx_t.numel()
+            if n < S:
+                pad = torch.zeros(S - n, dtype=torch.long, device=cycle_id.device)
+                padded.append(torch.cat([idx_t, pad], dim=0))
+                mask_t = torch.cat([
+                    torch.ones(n, dtype=torch.bool, device=cycle_id.device),
+                    torch.zeros(S - n, dtype=torch.bool, device=cycle_id.device),
+                ])
+                masks.append(mask_t)
+            else:
+                padded.append(idx_t[:S])
+                masks.append(torch.ones(S, dtype=torch.bool, device=cycle_id.device))
+
+        indices = torch.stack(padded, dim=0).long()  # (T, S)
+        pad_mask = torch.stack(masks, dim=0)          # (T, S)
+
+        return T, S, indices, pad_mask
 
     def __len__(self):
         return self.num_shots
@@ -248,10 +272,15 @@ class SyndromeDataset(Dataset):
         synd_ts = syndrome[ci]  # (T,S)
         mask_ts = self.det_token_mask[ci]  # (T,S) bool
 
+        # Incorporate cycle padding mask: padded positions should not contribute
+        # to the next-stab loss
+        cycle_pm = self.cycle_pad_mask  # (T, S) bool
+        mask_ts = mask_ts & cycle_pm
+
         # predict next cycle: target = cycles 1..T-1
         true_stabs = synd_ts[1:, :]                       # (T-1,S)
         token_mask = mask_ts[1:, :].clone()               # (T-1,S) bool
-        
+
         # Apply leakage mask to token_mask if available
         if self.leakage_mask is not None:
             leak_mask_ts = self.leakage_mask[idx][ci]  # (T, S) bool
@@ -282,6 +311,7 @@ class SyndromeDataset(Dataset):
             
             # For AttentionBiasProvider
             "cycle_index": self.cycle_index,   # (T, S) indices for per-cycle mapping
+            "cycle_pad_mask": self.cycle_pad_mask,  # (T, S) bool — True = real, False = pad
         }
         
         # Add stab_xy if available (for AttentionBiasProvider)

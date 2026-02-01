@@ -5,26 +5,35 @@ gen_basis_data.py - Generate basis-separated hard detector data for QEC decoding
 Generates separate X-basis and Z-basis datasets following the AlphaQubit approach:
 each basis gets its own dataset with a single logical observable label.
 
+Data is fully reproducible: Stim sampling and train/val splits are both seeded.
+Re-running with the same arguments produces identical output.
+
 Usage:
     python gen_basis_data.py
     python gen_basis_data.py --distances 3 5 7 --shots 50000
-    python gen_basis_data.py --bases z          # Z-basis only
+    python gen_basis_data.py --bases z --p 0.005
+    python gen_basis_data.py --ps 0.001 0.003 0.005 0.007 0.01
     python gen_basis_data.py --output_dir ../../data
 
 Output structure:
-    data/{basis}_basis/d{d}_r{rounds}/train.npz
-    data/{basis}_basis/d{d}_r{rounds}/val.npz
-    data/{basis}_basis/d{d}_r{rounds}/layout.json
-    data/{basis}_basis/d{d}_r{rounds}/info.json
+    data/{basis}_basis/d{d}_r{rounds}_p{p}_s{seed}/train.npz
+    data/{basis}_basis/d{d}_r{rounds}_p{p}_s{seed}/val.npz
+    data/{basis}_basis/d{d}_r{rounds}_p{p}_s{seed}/layout.json
+    data/{basis}_basis/d{d}_r{rounds}_p{p}_s{seed}/info.json
 
 Each .npz contains:
     - det_hard: (N, D) int8 - Binary detector events
     - obs: (N, 1) int8 - Single logical error label matching the basis
+
+Seed derivation (deterministic):
+    effective_seed = base_seed + basis_offset + distance_offset + p_offset
+    where basis_offset  = {"z": 0, "x": 10000}
+          distance_offset = distance * 100
+          p_offset        = round(p * 1e6)   (microsecond-scale int from p)
 """
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -34,6 +43,31 @@ import stim
 # Add parent directory so we can import layout from trans3_alphaqubit
 sys.path.insert(0, str(Path(__file__).parent.parent / "trans3_alphaqubit"))
 from layout import build_layout_from_circuit, save_layout_json
+
+
+def derive_seed(base_seed: int, basis: str, distance: int, p: float) -> int:
+    """Deterministic seed from (base_seed, basis, distance, p).
+
+    Same inputs always produce the same seed. Different (basis, distance, p)
+    combos produce different seeds to ensure independent samples.
+    """
+    basis_offset = {"z": 0, "x": 10000}
+    distance_offset = distance * 100
+    p_offset = round(p * 1e6)  # e.g. p=0.005 -> 5000
+    return base_seed + basis_offset[basis] + distance_offset + p_offset
+
+
+def format_p(p: float) -> str:
+    """Format p for directory names: 0.005 -> '0.005', 0.0005 -> '5e-04'."""
+    if p >= 0.001:
+        return f"{p:.4f}".rstrip("0").rstrip(".")
+    else:
+        return f"{p:.2e}"
+
+
+def dataset_dir_name(distance: int, rounds: int, p: float, seed: int) -> str:
+    """Build directory name encoding all parameters."""
+    return f"d{distance}_r{rounds}_p{format_p(p)}_s{seed}"
 
 
 def generate_basis_dataset(
@@ -47,13 +81,15 @@ def generate_basis_dataset(
     """
     Generate hard detector data for a single basis.
 
+    Fully reproducible: Stim's detector sampler is seeded.
+
     Args:
         basis: "x" or "z"
         distance: Surface code distance
         rounds: Number of QEC rounds
         p: Physical error probability
         shots: Number of samples
-        seed: Random seed for sampling
+        seed: Random seed for Stim sampling
 
     Returns:
         (circuit, det_hard, obs)
@@ -93,14 +129,14 @@ def generate_and_save(
     train_split: float,
     output_dir: Path,
 ):
-    """Generate data for one (basis, distance, rounds) config and save to disk."""
-    dir_name = f"d{distance}_r{rounds}"
+    """Generate data for one (basis, distance, rounds, p) config and save to disk."""
+    dir_name = dataset_dir_name(distance, rounds, p, seed)
     dataset_dir = output_dir / f"{basis}_basis" / dir_name
     dataset_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"\n{'='*60}")
-    print(f"Generating: {basis.upper()}-basis  d={distance}  rounds={rounds}")
-    print(f"  p={p}, shots={shots}, seed={seed}")
+    print(f"Generating: {basis.upper()}-basis  d={distance}  rounds={rounds}  p={p}")
+    print(f"  seed={seed}  shots={shots}")
     print(f"  Output: {dataset_dir}")
     print(f"{'='*60}")
 
@@ -113,7 +149,7 @@ def generate_and_save(
         seed=seed,
     )
 
-    # Train/val split
+    # Train/val split (seeded for reproducibility)
     n_samples = det_hard.shape[0]
     n_train = int(n_samples * train_split)
 
@@ -155,11 +191,13 @@ def generate_and_save(
         "p": p,
         "shots": shots,
         "seed": seed,
+        "train_split": train_split,
         "n_train": len(train_idx),
         "n_val": len(val_idx),
         "num_detectors": int(circ.num_detectors),
         "det_rate": float(det_rate),
         "obs_rate": float(obs_rate),
+        "dir_name": dir_name,
     }
 
     # Save info
@@ -189,19 +227,29 @@ def main():
                         help="rounds = distance * multiplier")
     parser.add_argument("--shots", type=int, default=20000,
                         help="Number of samples per dataset")
-    parser.add_argument("--p", type=float, default=0.005,
-                        help="Physical error probability")
+    parser.add_argument("--p", type=float, default=None,
+                        help="Single physical error probability")
+    parser.add_argument("--ps", type=float, nargs="+", default=None,
+                        help="Multiple physical error probabilities")
     parser.add_argument("--bases", type=str, nargs="+", default=["z", "x"],
                         choices=["z", "x"],
                         help="Which bases to generate")
     parser.add_argument("--output_dir", type=str, default="data",
                         help="Output root directory (relative to this script)")
     parser.add_argument("--seed", type=int, default=42,
-                        help="Base random seed")
+                        help="Base random seed (combined with basis/distance/p for uniqueness)")
     parser.add_argument("--train_split", type=float, default=0.8,
                         help="Fraction of data for training")
 
     args = parser.parse_args()
+
+    # Resolve error rates
+    if args.ps is not None:
+        ps = args.ps
+    elif args.p is not None:
+        ps = [args.p]
+    else:
+        ps = [0.005]  # default
 
     # Resolve output dir relative to script location
     script_dir = Path(__file__).parent
@@ -211,29 +259,28 @@ def main():
     print(f"Output directory: {output_dir}")
     print(f"Bases: {args.bases}")
     print(f"Distances: {args.distances}")
-    print(f"Physical error rate: {args.p}")
+    print(f"Physical error rates: {ps}")
+    print(f"Base seed: {args.seed}")
 
     all_info = []
 
-    # Use different seeds for different bases to ensure independent samples
-    seed_offset = {"z": 0, "x": 1000}
-
     for basis in args.bases:
         for distance in args.distances:
-            rounds = distance * args.rounds_multiplier
-            seed = args.seed + seed_offset[basis] + distance
+            for p in ps:
+                rounds = distance * args.rounds_multiplier
+                seed = derive_seed(args.seed, basis, distance, p)
 
-            info = generate_and_save(
-                basis=basis,
-                distance=distance,
-                rounds=rounds,
-                p=args.p,
-                shots=args.shots,
-                seed=seed,
-                train_split=args.train_split,
-                output_dir=output_dir,
-            )
-            all_info.append(info)
+                info = generate_and_save(
+                    basis=basis,
+                    distance=distance,
+                    rounds=rounds,
+                    p=p,
+                    shots=args.shots,
+                    seed=seed,
+                    train_split=args.train_split,
+                    output_dir=output_dir,
+                )
+                all_info.append(info)
 
     # Save master index
     index_path = output_dir / "index.json"
@@ -244,13 +291,15 @@ def main():
     print(f"\n{'='*60}")
     print("SUMMARY")
     print(f"{'='*60}")
-    print(f"{'Basis':<8} {'Distance':>8} {'Rounds':>8} {'Shots':>8} {'LER':>12}")
-    print(f"{'-'*52}")
+    print(f"{'Basis':<6} {'d':>3} {'r':>3} {'p':>8} {'Seed':>8} {'Shots':>8} {'LER':>10} {'Directory'}")
+    print(f"{'-'*80}")
     for info in all_info:
-        print(f"{info['basis'].upper():<8} {info['distance']:>8} {info['rounds']:>8} "
-              f"{info['shots']:>8} {info['obs_rate']:>12.4%}")
+        print(f"{info['basis'].upper():<6} {info['distance']:>3} {info['rounds']:>3} "
+              f"{info['p']:>8.4f} {info['seed']:>8} {info['shots']:>8} "
+              f"{info['obs_rate']:>10.4%} {info['dir_name']}")
     print(f"{'='*60}")
     print(f"Index saved to {index_path}")
+    print(f"\nTo reproduce any dataset, re-run with the same --seed ({args.seed}).")
 
 
 if __name__ == "__main__":
