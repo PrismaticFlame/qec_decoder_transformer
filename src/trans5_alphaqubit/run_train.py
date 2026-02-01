@@ -11,11 +11,13 @@ Usage:
     python run_train.py --basis z --distance 3
     python run_train.py --bases z x --distance 3 --num_steps 50000
     python run_train.py --bases z x --distances 3 5 7
+    python run_train.py --basis z --distance 5 --p 0.005 --data_seed 5542
 
-Data is read from:
-    {data_dir}/{basis}_basis/d{distance}_r{rounds}/train.npz
-    {data_dir}/{basis}_basis/d{distance}_r{rounds}/val.npz
-    {data_dir}/{basis}_basis/d{distance}_r{rounds}/layout.json
+Data is resolved from (checked in order):
+    1. {data_dir}/{basis}_basis/d{d}_r{r}_p{p}_s{seed}/  (exact match if --p and --seed given)
+    2. {data_dir}/{basis}_basis/d{d}_r{r}_p{p}_s*/        (glob if only --p given)
+    3. {data_dir}/{basis}_basis/d{d}_r{r}_p*_s*/           (glob, newest match)
+    4. {data_dir}/{basis}_basis/d{d}_r{r}/                 (legacy flat naming)
 
 Checkpoints saved to:
     checkpoints/{basis}_d{distance}_r{rounds}.pth
@@ -314,10 +316,63 @@ def save_training_history(history: Dict, checkpoint_dir: Path, run_name: str):
         print("  matplotlib not available, skipping plot generation")
 
 
-def resolve_data_path(data_dir: Path, basis: str, distance: int, rounds_multiplier: int) -> Path:
-    """Resolve the data path for a given basis and distance."""
+def _format_p(p: float) -> str:
+    """Format p for directory names: 0.005 -> '0.005', 0.0005 -> '5e-04'."""
+    if p >= 0.001:
+        return f"{p:.4f}".rstrip("0").rstrip(".")
+    else:
+        return f"{p:.2e}"
+
+
+def resolve_data_path(
+    data_dir: Path,
+    basis: str,
+    distance: int,
+    rounds_multiplier: int,
+    p: Optional[float] = None,
+    seed: Optional[int] = None,
+) -> Path:
+    """Resolve data path, supporting both new and legacy directory naming.
+
+    Resolution order:
+      1. Exact:  d{d}_r{r}_p{p}_s{seed}/   (if both p and seed given)
+      2. Glob:   d{d}_r{r}_p{p}_s*/         (if only p given)
+      3. Glob:   d{d}_r{r}_p*_s*/           (any new-style dir)
+      4. Legacy: d{d}_r{r}/                 (old flat naming)
+    """
     rounds = distance * rounds_multiplier
-    return data_dir / f"{basis}_basis" / f"d{distance}_r{rounds}"
+    basis_dir = data_dir / f"{basis}_basis"
+
+    # 1. Exact match with p and seed
+    if p is not None and seed is not None:
+        exact = basis_dir / f"d{distance}_r{rounds}_p{_format_p(p)}_s{seed}"
+        if exact.is_dir():
+            return exact
+
+    # 2. Glob with specific p
+    if p is not None:
+        pattern = f"d{distance}_r{rounds}_p{_format_p(p)}_s*"
+        candidates = sorted(basis_dir.glob(pattern))
+        if candidates:
+            if len(candidates) > 1:
+                print(f"  NOTE: Multiple datasets match p={p}, using newest: {candidates[-1].name}")
+            return candidates[-1]
+
+    # 3. Glob any new-style directory
+    candidates = sorted(basis_dir.glob(f"d{distance}_r{rounds}_p*_s*"))
+    if candidates:
+        chosen = candidates[-1]
+        if len(candidates) > 1:
+            print(f"  NOTE: Multiple datasets found, using newest: {chosen.name}")
+        return chosen
+
+    # 4. Legacy flat naming
+    legacy = basis_dir / f"d{distance}_r{rounds}"
+    if legacy.is_dir():
+        return legacy
+
+    # Nothing found — return the legacy path so the caller gets a clear FileNotFoundError
+    return legacy
 
 
 def train_single(
@@ -331,6 +386,8 @@ def train_single(
     use_full_bias: bool = True,
     input_mode: str = "hard",
     use_wandb: bool = False,
+    p: Optional[float] = None,
+    data_seed: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Train a single model for one (basis, distance) pair."""
     if train_cfg is None:
@@ -338,7 +395,9 @@ def train_single(
     if model_cfg is None:
         model_cfg = ModelConfigScaling()
 
-    dataset_path = resolve_data_path(data_dir, basis, distance, rounds_multiplier)
+    dataset_path = resolve_data_path(
+        data_dir, basis, distance, rounds_multiplier, p=p, seed=data_seed,
+    )
     rounds = distance * rounds_multiplier
 
     train_path = str(dataset_path / "train.npz")
@@ -346,9 +405,9 @@ def train_single(
     layout_path = str(dataset_path / "layout.json")
 
     # Verify files exist
-    for p in [train_path, val_path, layout_path]:
-        if not os.path.exists(p):
-            raise FileNotFoundError(f"Required file not found: {p}")
+    for fpath in [train_path, val_path, layout_path]:
+        if not os.path.exists(fpath):
+            raise FileNotFoundError(f"Required file not found: {fpath}")
 
     print(f"\n{'='*60}")
     print(f"Training: {basis.upper()}-basis  d={distance}  rounds={rounds}")
@@ -461,6 +520,10 @@ def main():
     # Data
     parser.add_argument("--data_dir", type=str, default="../prop_data_gen/data",
                         help="Root data directory (relative to this script)")
+    parser.add_argument("--p", type=float, default=None,
+                        help="Physical error rate to match in data directory name (e.g. 0.005)")
+    parser.add_argument("--data_seed", type=int, default=None,
+                        help="Data generation seed to match in directory name")
     parser.add_argument("--input_mode", type=str, default="hard", choices=["hard", "soft"],
                         help="Input mode: hard (binary) or soft (continuous)")
 
@@ -607,6 +670,8 @@ def main():
                 use_full_bias=args.use_full_bias,
                 input_mode=args.input_mode,
                 use_wandb=args.use_wandb,
+                p=args.p,
+                data_seed=args.data_seed,
             )
             results.append(result)
 
