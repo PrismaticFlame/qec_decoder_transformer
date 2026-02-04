@@ -61,7 +61,13 @@ cd streamlit
 Run:
 
 ```bash
-python -m streamlit run streamlit_app.py
+python -m streamlit run Home.py
+```
+
+To stop the server, press:
+
+```bash
+Ctrl + C
 ```
 
 ---
@@ -72,13 +78,3 @@ After starting the server, the terminal will display two URLs:
 
 * **Local URL** – Accessible only from your machine
 * **Network URL** – Accessible by other devices on the same network
-
----
-
-## Stopping the Server
-
-To close the application, press:
-
-```bash
-Ctrl + C
-```
