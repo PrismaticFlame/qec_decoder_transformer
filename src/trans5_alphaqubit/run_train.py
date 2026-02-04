@@ -8,8 +8,8 @@ Changes from trans4:
   - AlphaQubit next-stab cosine annealing schedule enabled by default
 
 Usage:
-    python run_train.py --basis z --distance 3
-    python run_train.py --bases z x --distance 3 --num_steps 50000
+    python run_train.py --basis z --distance 3 --num_steps 50000
+    python run_train.py --bases z x --distance 3 --rounds 9 --num_steps 50000
     python run_train.py --bases z x --distances 3 5 7
     python run_train.py --basis z --distance 5 --p 0.005 --data_seed 5542
 
@@ -328,7 +328,7 @@ def resolve_data_path(
     data_dir: Path,
     basis: str,
     distance: int,
-    rounds_multiplier: int,
+    rounds: int,
     p: Optional[float] = None,
     seed: Optional[int] = None,
 ) -> Path:
@@ -340,7 +340,6 @@ def resolve_data_path(
       3. Glob:   d{d}_r{r}_p*_s*/           (any new-style dir)
       4. Legacy: d{d}_r{r}/                 (old flat naming)
     """
-    rounds = distance * rounds_multiplier
     basis_dir = data_dir / f"{basis}_basis"
 
     # 1. Exact match with p and seed
@@ -378,9 +377,9 @@ def resolve_data_path(
 def train_single(
     basis: str,
     distance: int,
+    rounds: int,
     data_dir: Path,
     checkpoint_dir: Path,
-    rounds_multiplier: int = 2,
     train_cfg: Optional[ScalingConfig] = None,
     model_cfg: Optional[ModelConfigScaling] = None,
     use_full_bias: bool = True,
@@ -389,16 +388,15 @@ def train_single(
     p: Optional[float] = None,
     data_seed: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """Train a single model for one (basis, distance) pair."""
+    """Train a single model for one (basis, distance, rounds) combination."""
     if train_cfg is None:
         train_cfg = build_scaling_config()
     if model_cfg is None:
         model_cfg = ModelConfigScaling()
 
     dataset_path = resolve_data_path(
-        data_dir, basis, distance, rounds_multiplier, p=p, seed=data_seed,
+        data_dir, basis, distance, rounds, p=p, seed=data_seed,
     )
-    rounds = distance * rounds_multiplier
 
     train_path = str(dataset_path / "train.npz")
     val_path = str(dataset_path / "val.npz")
@@ -514,8 +512,10 @@ def main():
                         help="Single code distance")
     parser.add_argument("--distances", type=int, nargs="+",
                         help="Multiple code distances")
+    parser.add_argument("--rounds", type=int, default=None,
+                        help="Explicit number of QEC rounds (overrides --rounds_multiplier)")
     parser.add_argument("--rounds_multiplier", type=int, default=2,
-                        help="rounds = distance * multiplier")
+                        help="rounds = distance * multiplier (used when --rounds not set)")
 
     # Data
     parser.add_argument("--data_dir", type=str, default="../prop_data_gen/data",
@@ -616,6 +616,10 @@ def main():
         train_cfg.weight_decay = args.weight_decay
     if args.lr_decay_steps is not None:
         train_cfg.lr_decay_steps = args.lr_decay_steps
+    else:
+        # Auto-compute LR decay at 60%/80%/90% of training
+        n = args.num_steps
+        train_cfg.lr_decay_steps = [int(n * 0.6), int(n * 0.8), int(n * 0.9)]
 
     # Set next-stab schedule on train_cfg so trans3's train.py picks it up
     # (train.py reads these via getattr(cfg, "next_stab_schedule", "none"))
@@ -627,6 +631,14 @@ def main():
     # from info.json in train_single)
     if args.pos_weight is not None:
         train_cfg.logical_pos_weight = args.pos_weight
+
+    print(f"Training config:")
+    print(f"  Steps: {train_cfg.num_steps}")
+    print(f"  LR: {train_cfg.lr}")
+    print(f"  LR decay steps: {train_cfg.lr_decay_steps}")
+    print(f"  LR decay factor: {train_cfg.lr_decay_factor}")
+    print(f"  Batch size: {train_cfg.batch_init}")
+    print(f"  Next-stab schedule: {args.next_stab_schedule}")
 
     # Build model config with trans5 defaults
     model_cfg = ModelConfigScaling()
@@ -656,15 +668,17 @@ def main():
     results = []
     for basis in bases:
         for distance in distances:
+            rounds = args.rounds if args.rounds is not None else distance * args.rounds_multiplier
+
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
             result = train_single(
                 basis=basis,
                 distance=distance,
+                rounds=rounds,
                 data_dir=data_dir,
                 checkpoint_dir=checkpoint_dir,
-                rounds_multiplier=args.rounds_multiplier,
                 train_cfg=train_cfg,
                 model_cfg=model_cfg,
                 use_full_bias=args.use_full_bias,
