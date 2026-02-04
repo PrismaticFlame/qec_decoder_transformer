@@ -6,10 +6,10 @@ st.title("Example graph")
 
 df = pd.DataFrame(
     {
-        "col1": list(range(20)) * 3,
-        "col2": rng(0).standard_normal(60),
-        "col3": ["a"] * 20 + ["b"] * 20 + ["c"] * 20,
+        "Index": list(range(20)) * 3,
+        "Value": rng(0).standard_normal(60),
+        "Section": ["a"] * 20 + ["b"] * 20 + ["c"] * 20,
     }
 )
 
-st.line_chart(df, x="col1", y="col2", color="col3")
+st.line_chart(df, x="Index", y="Value", color="Section")
