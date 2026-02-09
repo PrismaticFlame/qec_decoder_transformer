@@ -247,7 +247,7 @@ class RNNCore(nn.Module):
     def __init__(
         self,
         d_d: int, d_attn: int, d_mid: int, db: int, H: int, n_layers: int,
-        conv_block: ScatteringResidualConvBlock,
+        conv_blocks: nn.ModuleList,
         widen: int = 4
     ):
         super().__init__()
@@ -256,7 +256,7 @@ class RNNCore(nn.Module):
         self.attn = nn.ModuleList([MHAttentionWithBias(d_d, d_attn, d_mid, db, H) for _ in range(n_layers)])
         self.ln2 = nn.ModuleList([LN(d_d) for _ in range(n_layers)])
         self.ffn = nn.ModuleList([GatedDenseBlock(d_d, w=widen) for _ in range(n_layers)])
-        self.conv_block = conv_block
+        self.conv_blocks = conv_blocks
 
     def forward(self, X: torch.Tensor, S: torch.Tensor, Bbias: torch.Tensor) -> torch.Tensor:
         X = (X + S) / math.sqrt(2.0)
@@ -265,7 +265,7 @@ class RNNCore(nn.Module):
             X = X + self.attn[l](Xn, Bbias)
             Xn = self.ln2[l](X)
             X = X + self.ffn[l](Xn)
-            X = self.conv_block(X)
+            X = self.conv_blocks[l](X)
         return X
 
 
@@ -309,15 +309,16 @@ class ReadoutResidualBlock(nn.Module):
 # ============================================================
 class ReadoutResNet(nn.Module):
     """
-    AlphaQubit-paper readout network.
+    AlphaQubit-paper readout network with directional pooling.
 
     Pipeline:
       1. Scatter (B, S, D) -> 2D grid (B, D, H, W) using coord_to_index
       2. Conv2d(D, D, kernel_size=2, stride=2) for spatial reduction
       3. Project D -> readout_dim via 1x1 conv
-      4. Global mean pool over spatial dims -> (B, readout_dim)
-      5. num_layers residual blocks (Linear->GELU->Linear + skip)
-      6. Final Linear(readout_dim, 1) -> logit
+      4. Mean pool perpendicular to logical observable direction
+         -> (B, readout_dim, K) where K = positions along observable
+      5. Per-position: num_layers residual blocks (shared weights)
+      6. Per-position: Linear(readout_dim, 1) -> K logits -> average
     """
 
     def __init__(
@@ -327,12 +328,14 @@ class ReadoutResNet(nn.Module):
         num_layers: int = 16,
         distance: int = 3,
         coord_to_index: Optional[dict] = None,
+        basis: str = "z",
     ):
         super().__init__()
         self.d_model = d_model
         self.readout_dim = readout_dim
         self.distance = distance
         self.coord_to_index = coord_to_index or {}
+        self.basis = basis
 
         # Learnable padding value for empty grid cells
         self.P = nn.Parameter(torch.zeros(d_model))
@@ -343,13 +346,13 @@ class ReadoutResNet(nn.Module):
         # Dimensionality reduction: d_model -> readout_dim
         self.dim_reduce = nn.Conv2d(d_model, readout_dim, kernel_size=1)
 
-        # Residual MLP blocks
+        # Residual MLP blocks (shared across spatial positions)
         self.res_blocks = nn.ModuleList([
             ReadoutResidualBlock(readout_dim)
             for _ in range(num_layers)
         ])
 
-        # Final classifier
+        # Final classifier (shared across spatial positions)
         self.out_linear = nn.Linear(readout_dim, 1)
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
@@ -373,22 +376,37 @@ class ReadoutResNet(nn.Module):
         grid = grid.permute(0, 3, 1, 2).contiguous()
 
         # Step 2: 2x2 conv spatial reduction
-        x = self.spatial_conv(grid)  # (B, d_model, H//2, W//2)
+        x = self.spatial_conv(grid)  # (B, d_model, H', W') where H'=H//2, W'=W//2
         x = F.gelu(x)
 
         # Step 3: Dimensionality reduction
-        x = self.dim_reduce(x)  # (B, readout_dim, H//2, W//2)
+        x = self.dim_reduce(x)  # (B, readout_dim, H', W')
         x = F.gelu(x)
 
-        # Step 4: Global mean pool
-        x = x.mean(dim=[2, 3])  # (B, readout_dim)
+        # Step 4: Directional mean pool perpendicular to logical observable
+        # For rotated surface code:
+        #   X-basis observable runs vertically -> pool horizontally (over W') -> keep H' positions
+        #   Z-basis observable runs horizontally -> pool vertically (over H') -> keep W' positions
+        if self.basis == "x":
+            x = x.mean(dim=3)  # pool over width -> (B, readout_dim, H')
+        else:
+            x = x.mean(dim=2)  # pool over height -> (B, readout_dim, W')
 
-        # Step 5: Residual MLP blocks
+        # x is now (B, readout_dim, K) where K = positions along observable
+        # Transpose to (B, K, readout_dim) then flatten to (B*K, readout_dim)
+        K = x.shape[2]
+        x = x.permute(0, 2, 1).contiguous()  # (B, K, readout_dim)
+        x = x.reshape(B * K, self.readout_dim)  # (B*K, readout_dim)
+
+        # Step 5: Residual MLP blocks (shared across K positions)
         for block in self.res_blocks:
             x = block(x)
 
-        # Step 6: Final linear
-        logits = self.out_linear(x).squeeze(-1)  # (B,)
+        # Step 6: Per-position logit, then average
+        x = self.out_linear(x).squeeze(-1)  # (B*K,)
+        x = x.view(B, K)  # (B, K)
+        logits = x.mean(dim=1)  # (B,) average over K positions
+
         return logits
 
 
@@ -428,7 +446,7 @@ class AlphaQubitLikeModel(nn.Module):
         H: int,
         n_layers: int,
         widen: int,
-        conv_block,  # ScatteringResidualConvBlock
+        conv_blocks: nn.ModuleList,  # L separate ScatteringResidualConvBlocks
         bias_provider: nn.Module,  # returns bias (B,S,S,db)
         use_next_stab: bool = True,
         # ReadoutResNet parameters
@@ -436,6 +454,7 @@ class AlphaQubitLikeModel(nn.Module):
         readout_resnet_layers: int = 16,
         distance: int = 3,
         coord_to_index: Optional[dict] = None,
+        basis: str = "z",
     ):
         super().__init__()
         self.embed = StabilizerEmbedding(num_stab=num_stab, num_cycles=num_cycles, d_model=d_model)
@@ -444,16 +463,17 @@ class AlphaQubitLikeModel(nn.Module):
         # Learned vector for off-basis stabilizers in the final round
         self.offbasis_final_emb = nn.Parameter(torch.zeros(d_model))
 
-        self.core = RNNCore(d_model, d_attn, d_mid, db, H, n_layers, conv_block, widen=widen)
+        self.core = RNNCore(d_model, d_attn, d_mid, db, H, n_layers, conv_blocks, widen=widen)
 
         self.readout_ln = nn.LayerNorm(d_model)
-        # ReadoutResNet: scatter -> conv -> reduce -> pool -> ResNet -> logit
+        # ReadoutResNet: scatter -> conv -> reduce -> directional pool -> ResNet -> logit
         self.readout = ReadoutResNet(
             d_model=d_model,
             readout_dim=readout_dim,
             num_layers=readout_resnet_layers,
             distance=distance,
             coord_to_index=coord_to_index or {},
+            basis=basis,
         )
 
         self.use_next_stab = use_next_stab

@@ -85,7 +85,7 @@ Algorithm 5 – RNNCore (per error-correction round):
 | **Multi-head attention** | Alg 2: `B'=W_b B`, per-head `Q,K,V` projections, `S=QK^T + B'`, softmax. V uses `d_mid` (not `d_attn`). Output projection: `W_o(H*d_mid -> d_d)` | Same | Same | Same (Algorithms 1-2) |
 | **Gated dense block** | Alg 3: `W_1` expands to `w*d_d`, split in half, `GELU(a) * g`, `W_2` projects back to `d_d` | Same | Same | Same (Algorithm 3) |
 | **Convolution block** | Alg 4: scatter to `(d+1)x(d+1)` grid -> per-layer: `LN -> 3x3 Conv -> GELU -> [1x1 proj if c≠d_d]` -> residual -> gather | Same | Same | Same (Algorithm 4) |
-| **Conv weight sharing** | **Shared** across all L layers (single instance) | **Shared** | **Shared** | Pseudocode ambiguous (separate weights per layer is standard) |
+| **Conv weight sharing** | **Shared** across all L layers (single instance) | **Shared** | **Separate** per layer (`nn.ModuleList` of L independent blocks) | Pseudocode ambiguous (separate weights per layer is standard) |
 | **Learned padding** | Yes (`nn.Parameter` for empty grid cells) | Yes | Yes | Yes (learned padding vector **P**) |
 | **State combination** | `(X + S) / sqrt(2)` | Same | Same | Same (scale factor `1/sqrt(2)` to control magnitude) |
 
@@ -93,20 +93,20 @@ Algorithm 5 – RNNCore (per error-correction round):
 
 | Aspect | Trans3 | Trans5 | Trans6 | AlphaQubit |
 |---|---|---|---|---|
-| **Bias type** | `ManhattanDistanceBias` (simple) or `AttentionBiasProvider` (full) | Same (full by default) | `ManhattanDistanceBias` | Learned attention bias embedding (d^2-1 x d^2-1 x 48) |
-| **Features encoded** | Manhattan distance between stabilizers; or spatial coords + offsets + Manhattan + same-type bit + event correlations | Same as Trans3 full | Manhattan distance only | Spatial coords of i,j; signed offset; Manhattan distance; same/different basis bit |
-| **Event indicator features** | 7 features (spatial and time-space event correlations) in full mode | Same | None | 7 features (spatial and time-space event products) |
-| **Precomputable** | Yes (static part) | Yes | Yes (fully static) | Yes (static embedding; dynamic event features require per-round update) |
+| **Bias type** | `ManhattanDistanceBias` (simple) or `AttentionBiasProvider` (full) | Same (full by default) | `AttentionBiasProvider` (full, default) | Learned attention bias embedding (d^2-1 x d^2-1 x 48) |
+| **Features encoded** | Manhattan distance between stabilizers; or spatial coords + offsets + Manhattan + same-type bit + event correlations | Same as Trans3 full | Spatial coords + offsets + Manhattan + same-type bit + event correlations (full 7-feature) | Spatial coords of i,j; signed offset; Manhattan distance; same/different basis bit |
+| **Event indicator features** | 7 features (spatial and time-space event correlations) in full mode | Same | 7 features (same as Trans3 full mode) | 7 features (spatial and time-space event products) |
+| **Precomputable** | Yes (static part) | Yes | Yes (static part; dynamic event features per round) | Yes (static embedding; dynamic event features require per-round update) |
 
 ### 2.4 Readout Network
 
 | Component | Trans3 | Trans5 | Trans6 | AlphaQubit |
 |---|---|---|---|---|
-| **Architecture** | `LayerNorm -> mean pool over stabilizers -> Linear(d_model, 1)` | `LayerNorm -> ReadoutResNet` | `LayerNorm -> ReadoutResNet` | `Scatter to 2D -> 2x2 Conv -> dim reduction -> mean pool along logical observable lines -> ResNet -> Linear` |
-| **Spatial awareness** | No (mean pool destroys spatial info) | Yes (scatter to 2D grid -> 2x2 conv) | Yes (same as Trans5) | Yes (scatter + conv, pooling perpendicular to logical observables) |
+| **Architecture** | `LayerNorm -> mean pool over stabilizers -> Linear(d_model, 1)` | `LayerNorm -> ReadoutResNet` (global mean pool) | `LayerNorm -> ReadoutResNet` (directional pool perpendicular to logical observable) | `Scatter to 2D -> 2x2 Conv -> dim reduction -> mean pool perpendicular to logical observables -> ResNet -> Linear` |
+| **Spatial awareness** | No (mean pool destroys spatial info) | Yes (scatter to 2D grid -> 2x2 conv) | Yes (scatter + conv, directional pooling matching paper) | Yes (scatter + conv, pooling perpendicular to logical observables) |
 | **Residual blocks** | 0 | 16 (default) | 16 (default) | 16 (Sycamore) / 4 (scaling) |
 | **Hidden dim** | d_model (256) | readout_dim (48) | readout_dim (48) | 64 (Sycamore) / 32 (scaling) |
-| **Output heads** | 2 (classifier_x + classifier_z) | 1 (single basis) | 1 (single basis) | 1 per basis (d equivalent logical observable predictions averaged during training) |
+| **Output heads** | 2 (classifier_x + classifier_z) | 1 (single basis) | 1 per basis (K position logits averaged, matching paper) | 1 per basis (d equivalent logical observable predictions averaged during training) |
 
 ### 2.5 Auxiliary Tasks
 
@@ -190,19 +190,19 @@ Algorithm 5 – RNNCore (per error-correction round):
 
 ### 4.3 Trans6 vs AlphaQubit (Remaining Gaps)
 
-> **Note on pseudocode verification:** Algorithms 1-5 from the supplementary material (`41586_2024_8148_MOESM1_ESM.pdf`) confirm the architecture documented below. The Trans6 implementation faithfully translates all five algorithms. One open question: Trans3/5/6 all **share** a single `ScatteringResidualConvBlock` instance across transformer layers (attention and FFN have per-layer weights, but conv does not). The pseudocode is ambiguous on this; separate conv weights per layer would be standard practice and would increase the parameter count.
+> **Note on pseudocode verification:** Algorithms 1-5 from the supplementary material (`41586_2024_8148_MOESM1_ESM.pdf`) confirm the architecture documented below. Trans6 now faithfully implements all five algorithms with per-layer conv weights, full attention bias, and directional pooling.
 
 | Feature | Trans6 Status | AlphaQubit Paper |
 |---|---|---|
-| **Conv weights per layer** | Shared (single instance across all L layers) | Pseudocode ambiguous; separate per layer is standard |
+| **Conv weights per layer** | ~~Shared~~ **Fixed**: separate per layer (`nn.ModuleList`) | Pseudocode ambiguous; separate per layer is standard |
+| **Full attention bias** | ~~Manhattan only~~ **Fixed**: `AttentionBiasProvider` (7 features + 8-layer ResNet) is default | Learned (d^2-1)x(d^2-1)x48 embedding with spatial features + event indicators |
+| **Pooling direction** | ~~Global mean pool~~ **Fixed**: directional pool perpendicular to logical observable, K logits averaged | Mean pool perpendicular to logical observables (found better than along them) |
 | **Soft I/Q readouts** | Not implemented (hard binary only) | Analogue I/Q signals with posterior probabilities for |0>, |1>, |2> |
 | **Leakage simulation** | Placeholder (zeros) | Pauli+ model with realistic leakage channels, transitions, cross-talk |
 | **Cross-talk** | Not modeled | Pauli-twirled correlated channels from CZ gate interactions |
 | **Two-stage training** | Not implemented | Pretrain on SI1000/DEM -> finetune on experimental/Pauli+ data |
 | **Noise curriculum** | Not implemented | Gradually increase noise from 0.5x to 1.0x during pretraining |
 | **Rounds curriculum** | Not implemented | Train on 3 -> 6 -> 12 -> 25 rounds progressively |
-| **Full attention bias** | Manhattan distance only | Learned (d^2-1)x(d^2-1)x48 embedding with spatial features + event indicators |
-| **Pooling direction** | Global mean pool | Mean pool perpendicular to logical observables (found better than along them) |
 | **Multi-distance training** | Not implemented | Single model trained on mixture of d=3 to d=11 with relative positional embeddings |
 | **Ensembling** | Not implemented | 15-20 independently trained models, averaged logits |
 | **Intermediate labels** | Not used | Used during pretraining (auxiliary label at every round from simulation) |

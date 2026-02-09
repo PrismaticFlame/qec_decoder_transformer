@@ -144,15 +144,20 @@ def build_model(
     model_cfg: ModelConfigScaling,
     train_cfg: ScalingConfig,
     use_full_bias: bool = True,
+    basis: str = "z",
 ) -> AlphaQubitLikeModel:
     num_stab = layout["num_stab"]
     num_cycles = layout["num_cycles"]
     distance = layout["distance"]
 
-    conv_block = build_conv_block(distance, model_cfg.d_model, layout, model_cfg)
+    # Build separate conv blocks per transformer layer (independent weights)
+    conv_blocks = nn.ModuleList([
+        build_conv_block(distance, model_cfg.d_model, layout, model_cfg)
+        for _ in range(model_cfg.syndrome_layers)
+    ])
 
-    # Extract coord_to_index from conv_block for the ReadoutResNet
-    coord_to_index = conv_block.coord_to_index
+    # Extract coord_to_index from the first conv block for the ReadoutResNet
+    coord_to_index = conv_blocks[0].coord_to_index
 
     if use_full_bias:
         bias_provider = AttentionBiasProvider(
@@ -178,7 +183,7 @@ def build_model(
         H=model_cfg.num_heads,
         n_layers=model_cfg.syndrome_layers,
         widen=model_cfg.dense_widen,
-        conv_block=conv_block,
+        conv_blocks=conv_blocks,
         bias_provider=bias_provider,
         use_next_stab=True,
         # ReadoutResNet parameters
@@ -186,6 +191,7 @@ def build_model(
         readout_resnet_layers=model_cfg.readout_resnet_layers,
         distance=distance,
         coord_to_index=coord_to_index,
+        basis=basis,
     )
 
     return model
@@ -435,7 +441,7 @@ def train_single(
     )
 
     # Build model
-    model = build_model(layout, model_cfg, train_cfg, use_full_bias=use_full_bias)
+    model = build_model(layout, model_cfg, train_cfg, use_full_bias=use_full_bias, basis=basis)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
