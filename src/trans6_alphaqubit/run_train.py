@@ -10,6 +10,7 @@ Changes from trans6:
 
 Usage:
     python run_train.py --basis z --distance 3
+    python run_train.py --basis z --distance 3 --rounds 12 --num_steps 100000
     python run_train.py --bases z x --distance 3 --num_steps 50000
     python run_train.py --bases z x --distances 3 5 7
     python run_train.py --basis z --distance 5 --p 0.005 --data_seed 5542
@@ -330,7 +331,7 @@ def resolve_data_path(
     data_dir: Path,
     basis: str,
     distance: int,
-    rounds_multiplier: int,
+    rounds: int,
     p: Optional[float] = None,
     seed: Optional[int] = None,
 ) -> Path:
@@ -342,7 +343,6 @@ def resolve_data_path(
       3. Glob:   d{d}_r{r}_p*_s*/           (any new-style dir)
       4. Legacy: d{d}_r{r}/                 (old flat naming)
     """
-    rounds = distance * rounds_multiplier
     basis_dir = data_dir / f"{basis}_basis"
 
     # 1. Exact match with p and seed
@@ -382,7 +382,7 @@ def train_single(
     distance: int,
     data_dir: Path,
     checkpoint_dir: Path,
-    rounds_multiplier: int = 2,
+    rounds: int,
     train_cfg: Optional[ScalingConfig] = None,
     model_cfg: Optional[ModelConfigScaling] = None,
     use_full_bias: bool = True,
@@ -398,9 +398,8 @@ def train_single(
         model_cfg = ModelConfigScaling()
 
     dataset_path = resolve_data_path(
-        data_dir, basis, distance, rounds_multiplier, p=p, seed=data_seed,
+        data_dir, basis, distance, rounds, p=p, seed=data_seed,
     )
-    rounds = distance * rounds_multiplier
 
     train_path = str(dataset_path / "train.npz")
     val_path = str(dataset_path / "val.npz")
@@ -517,10 +516,12 @@ def main():
     parser.add_argument("--distances", type=int, nargs="+",
                         help="Multiple code distances")
     parser.add_argument("--rounds_multiplier", type=int, default=2,
-                        help="rounds = distance * multiplier")
+                        help="rounds = distance * multiplier (ignored if --rounds is set)")
+    parser.add_argument("--rounds", type=int, default=None,
+                        help="Explicit round count (overrides --rounds_multiplier)")
 
     # Data
-    parser.add_argument("--data_dir", type=str, default="../prop_data_gen/data",
+    parser.add_argument("--data_dir", type=str, default="data",
                         help="Root data directory (relative to this script)")
     parser.add_argument("--p", type=float, default=None,
                         help="Physical error rate to match in data directory name (e.g. 0.005)")
@@ -661,20 +662,21 @@ def main():
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
+            rounds = args.rounds if args.rounds is not None else distance * args.rounds_multiplier
             result = train_single(
-                basis=basis,
-                distance=distance,
-                data_dir=data_dir,
-                checkpoint_dir=checkpoint_dir,
-                rounds_multiplier=args.rounds_multiplier,
-                train_cfg=train_cfg,
-                model_cfg=model_cfg,
-                use_full_bias=args.use_full_bias,
-                input_mode=args.input_mode,
-                use_wandb=args.use_wandb,
-                p=args.p,
-                data_seed=args.data_seed,
-            )
+                    basis=basis,
+                    distance=distance,
+                    data_dir=data_dir,
+                    checkpoint_dir=checkpoint_dir,
+                    rounds=rounds,
+                    train_cfg=train_cfg,
+                    model_cfg=model_cfg,
+                    use_full_bias=args.use_full_bias,
+                    input_mode=args.input_mode,
+                    use_wandb=args.use_wandb,
+                    p=args.p,
+                    data_seed=args.data_seed,
+                )
             results.append(result)
 
     # Print summary

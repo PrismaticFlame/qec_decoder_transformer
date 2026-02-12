@@ -44,16 +44,17 @@ import stim
 from layout import build_layout_from_circuit, save_layout_json
 
 
-def derive_seed(base_seed: int, basis: str, distance: int, p: float) -> int:
-    """Deterministic seed from (base_seed, basis, distance, p).
+def derive_seed(base_seed: int, basis: str, distance: int, p: float, rounds: int = 0) -> int:
+    """Deterministic seed from (base_seed, basis, distance, p, rounds).
 
-    Same inputs always produce the same seed. Different (basis, distance, p)
+    Same inputs always produce the same seed. Different (basis, distance, p, rounds)
     combos produce different seeds to ensure independent samples.
     """
     basis_offset = {"z": 0, "x": 10000}
     distance_offset = distance * 100
     p_offset = round(p * 1e6)  # e.g. p=0.005 -> 5000
-    return base_seed + basis_offset[basis] + distance_offset + p_offset
+    rounds_offset = rounds * 10
+    return base_seed + basis_offset[basis] + distance_offset + p_offset + rounds_offset
 
 
 def format_p(p: float) -> str:
@@ -264,6 +265,9 @@ def main():
                         help="Code distances to generate")
     parser.add_argument("--rounds_multiplier", type=int, default=2,
                         help="rounds = distance * multiplier")
+    parser.add_argument("--rounds_list", type=int, nargs="+", default=None,
+                        help="Explicit list of round counts (overrides --rounds_multiplier). "
+                             "E.g. --rounds_list 3 6 12 25")
     parser.add_argument("--shots", type=int, default=20000,
                         help="Number of samples per dataset")
     parser.add_argument("--p", type=float, default=None,
@@ -306,20 +310,26 @@ def main():
     for basis in args.bases:
         for distance in args.distances:
             for p in ps:
-                rounds = distance * args.rounds_multiplier
-                seed = derive_seed(args.seed, basis, distance, p)
+                # Determine round counts to generate
+                if args.rounds_list is not None:
+                    rounds_values = args.rounds_list
+                else:
+                    rounds_values = [distance * args.rounds_multiplier]
 
-                info = generate_and_save(
-                    basis=basis,
-                    distance=distance,
-                    rounds=rounds,
-                    p=p,
-                    shots=args.shots,
-                    seed=seed,
-                    train_split=args.train_split,
-                    output_dir=output_dir,
-                )
-                all_info.append(info)
+                for rounds in rounds_values:
+                    seed = derive_seed(args.seed, basis, distance, p, rounds)
+
+                    info = generate_and_save(
+                        basis=basis,
+                        distance=distance,
+                        rounds=rounds,
+                        p=p,
+                        shots=args.shots,
+                        seed=seed,
+                        train_split=args.train_split,
+                        output_dir=output_dir,
+                    )
+                    all_info.append(info)
 
     # Save master index
     index_path = output_dir / "index.json"
