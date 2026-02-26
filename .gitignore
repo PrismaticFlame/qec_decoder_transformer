@@ -39,6 +39,7 @@ logs/
 # Ignore CSV and NPZ files in stim_files/data/
 stim_files/data/*.csv
 stim_files/data/*.npz
+stim_files/data/surface_code_*
 
 # GPU support (WIP)
 docker-compose.gpu.yml
