@@ -12,6 +12,9 @@ data/*
 !data/.gitkeep
 models/*
 !models/.gitkeep
+*.svg
+*.pdf
+*.png
 
 # Jupyter
 .ipynb_checkpoints/
