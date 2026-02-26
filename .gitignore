@@ -15,6 +15,7 @@ models/*
 *.svg
 *.pdf
 *.png
+stim_files/stim/decoder_inputs/*
 
 # Jupyter
 .ipynb_checkpoints/
