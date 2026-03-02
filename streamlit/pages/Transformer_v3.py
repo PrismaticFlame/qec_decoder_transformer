@@ -44,7 +44,7 @@ basis_container.write(f"Current basis: {st.session_state['basis']}")
 graph = st.container()
 with st.expander("Show raw metrics"):
     data = st.container()
-createDataPlotly(csv, base, graph, data)
+createDataPlotly(csv, base, graph, data, "Test title", "This is a subtitle")
 
 st.header("Summary of results")
 st.write("Lorem ipsum dolor sit amet consectetur adipiscing elit. Consectetur adipiscing elit quisque faucibus ex sapien vitae. Ex sapien vitae pellentesque sem placerat in id. Placerat in id cursus mi pretium tellus duis. Pretium tellus duis convallis tempus leo eu aenean.")

@@ -8,7 +8,7 @@ color_map = {
     "base": "#2ca02c",
 }
 
-def createDataPlotly(csv, base, container_graph, container_data):
+def createDataPlotly(csv, base, container_graph, container_data, title = "", subtitle = ""):
     try:
         # # Set up data
         init_df = pd.read_csv(f"data/{csv}")
@@ -27,7 +27,9 @@ def createDataPlotly(csv, base, container_graph, container_data):
             x="step",
             y=["dev_ler", "best_ler", "base"],
             labels={"value": "LER", "variable": "Metric", "step": "Steps"},
-            color_discrete_map=color_map
+            color_discrete_map=color_map,
+            title = title,
+            subtitle= subtitle,
         )
 
         fig.update_yaxes(type="log")
