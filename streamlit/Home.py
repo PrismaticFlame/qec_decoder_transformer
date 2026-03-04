@@ -8,7 +8,8 @@ st.title("Quantum Error Correction: A Neural Network Decoder for Surface Codes")
 st.header("What is quantum error correction?")
 st.text("Quantum error correction - or QEC for short - is an algorithm known to identify and fix errors in quantum computers. This error-correcting algorithm is able to draw from validated mathematical approaches used to engineer special “radiation-hardened” classical microprocessors deployed in space or other extreme environments where errors are much more likely to occur.")
 st.text("In QEC quantum information stored in a single qubit is distributed across other supporting qubits; we say that this information is \"encoded\" in a logical quantum bit. This procedure protects the integrity of the original quantum information even while the quantum processor runs - but at a cost in terms of how many qubits are required. Overall, the worse your noise is, the more qubits you need.")
-st.write("Hyperlink to [page]")
+url = "https://q-ctrl.com/topics/what-is-quantum-error-correction"
+st.write("For more information check out [Basics of QEC](%s) by Q_CTRL." % url)
 
 st.header("What is a transformer?")
 st.text("A Transformer is a neural network architecture introduced in the 2017 paper \"Attention is All You Need\" by Vaswani et al. Unlike previous models (RNNs, LSTMs) that process sequences step-by-step, transformers process entire sequences at once using attention mechanisms.")
