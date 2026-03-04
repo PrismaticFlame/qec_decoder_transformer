@@ -6,7 +6,7 @@ Make sure you have **Python** and **VS Code** installed on your system.
 
 ---
 
-## 1. Install Streamlit
+## 1. Install Dependencies
 
 > You only need to do this once.
 
@@ -14,9 +14,11 @@ Open a terminal and run:
 
 ```bash
 pip install streamlit
+pip install pandas
+pip install plotly
 ```
 
-This installs Streamlit as a Python package.
+This installs Streamlit, pandas, and plotly as Python packages. 
 
 ---
 
