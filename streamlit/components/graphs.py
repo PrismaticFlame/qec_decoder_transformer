@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+from components.Data import Data
 
 color_map = {
     "dev_ler": "#1f77b4",
@@ -8,9 +9,10 @@ color_map = {
     "base": "#2ca02c",
 }
 
-def createDataPlotly(csv, base, container_graph, container_data, title = "", subtitle = ""):
+def createDataPlotly(data: Data, container_graph, container_data, title = "", subtitle = ""):
+    csv, base = data.csv, data.base
     try:
-        # # Set up data
+        # Set up data
         init_df = pd.read_csv(f"data/{csv}")
         base = ([base] * init_df.shape[0])
         df = pd.DataFrame({
