@@ -3,8 +3,8 @@ from components.graphs import createDataPlotly
 from components.Data import Data
 
 # Data file initialization
-x_data = Data('x_d3_r6_eval.csv', 0.05, "X", 3, 6, 500)
-z_data = Data('z_d3_r6_eval.csv', 0.03, "Z", 3, 6, 50000)
+x_data = Data('x_d3_r6_eval.csv', "X", 3, 6, 500)
+z_data = Data('z_d3_r6_eval.csv', "Z", 3, 6, 50000)
 
 dataDict = {
     'All': {'X': x_data, 'Z': z_data}, 

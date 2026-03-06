@@ -6,18 +6,18 @@ from components.Data import Data
 color_map = {
     "dev_ler": "#1f77b4",
     "best_ler": "#ff7f0e",
-    "base": "#2ca02c",
+    "Alpha Qubit Best Results": "#2ca02c",
 }
 
 def createDataPlotly(data: Data, container_graph, container_data, title = "", subtitle = ""):
-    csv, base = data.csv, data.base
+    csv, alphaBest = data.csv, data.alphaBest
     try:
         # Set up data
         init_df = pd.read_csv(f"data/{csv}")
-        base = ([base] * init_df.shape[0])
+        alphaBest = ([alphaBest] * init_df.shape[0])
         df = pd.DataFrame({
             "step": init_df["step"],
-            "base": base,
+            "Alpha Qubit Best Results": alphaBest,
             "dev_ler": init_df["dev_ler"],
             "best_ler": init_df["best_ler"],
         })
@@ -27,7 +27,7 @@ def createDataPlotly(data: Data, container_graph, container_data, title = "", su
         fig = px.line(
             df.reset_index(),
             x="step",
-            y=["dev_ler", "best_ler", "base"],
+            y=["dev_ler", "best_ler", "Alpha Qubit Best Results"],
             labels={"value": "LER", "variable": "Metric", "step": "Steps"},
             color_discrete_map=color_map,
             title = title,
