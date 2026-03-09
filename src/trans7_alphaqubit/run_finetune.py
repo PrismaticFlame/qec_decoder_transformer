@@ -291,7 +291,7 @@ def main():
                         default=[1, 3, 5, 7, 9, 11, 13, 15],
                         help="Round counts to use for fine-tuning (r1-r15 per plan)")
     parser.add_argument("--data_dir", type=str,
-                        default="../../data/goog_dem_data/data_0301")
+                        default="../../data/trans7_data")
     parser.add_argument("--checkpoint_dir", type=str, default="checkpoints/finetune")
     parser.add_argument("--num_steps", type=int, default=200_000)
     parser.add_argument("--batch_size", type=int, default=256)

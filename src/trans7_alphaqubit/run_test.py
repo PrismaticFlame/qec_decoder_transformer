@@ -231,7 +231,7 @@ def main():
                         default=["A", "B", "C"],
                         help="Which tests to run")
     parser.add_argument("--data_dir", type=str,
-                        default="../../data/goog_dem_data/data_0301")
+                        default="../../data/trans7_data")
     parser.add_argument("--batch_size", type=int, default=256)
     parser.add_argument("--d_model", type=int, default=256)
     parser.add_argument("--output", type=str, default=None,
