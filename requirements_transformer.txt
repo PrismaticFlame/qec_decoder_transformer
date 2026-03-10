@@ -5,6 +5,7 @@ tqdm>=4.65.0
 tensorboard>=2.13.0
 scikit-learn>=1.3.0
 torchsummary
+h5py
 
 # QEC / Stim (version >= 1.14 required for flattened_operations API)
 stim>=1.14.0
