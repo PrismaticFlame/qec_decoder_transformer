@@ -10,6 +10,7 @@ venv/
 # Data and models (too large for Git)
 data/*
 !data/.gitkeep
+!data/data_random_sample.py
 models/*
 !models/.gitkeep
 *.svg
