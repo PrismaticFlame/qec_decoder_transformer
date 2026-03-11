@@ -93,6 +93,7 @@ def train(
     run_name: str = "trans7_run",
     use_wandb: bool = False,
     checkpoint_path: Optional[str] = None,
+    get_next_train_chunk=None,
 ) -> Dict[str, Any]:
     """
     Train model according to cfg (TrainConfig).
@@ -118,6 +119,22 @@ def train(
     # EMA
     ema = EMA(model, alpha=cfg.ema_alpha) if cfg.use_ema else None
 
+    # AMP — enabled automatically when training on CUDA, no-op on CPU.
+    # Use bfloat16 on Ampere+ (A100, H100, RTX 30/40 series) — no overflow,
+    # no GradScaler needed. Fall back to float16 on older hardware.
+    use_amp = device.type == "cuda"
+    if use_amp and torch.cuda.is_bf16_supported():
+        amp_dtype = torch.bfloat16
+        use_scaler = False
+    else:
+        amp_dtype = torch.float16
+        use_scaler = use_amp
+    scaler = torch.cuda.amp.GradScaler(enabled=use_scaler)
+    if use_amp:
+        gpu_name = torch.cuda.get_device_name(device)
+        print(f"  AMP: {amp_dtype} on {gpu_name}"
+              + (" (GradScaler off)" if not use_scaler else " (GradScaler on)"))
+
     # Loss criterion
     criterion = QECMultiTaskLoss(
         next_stab_weight=float(getattr(cfg, "next_stab_pred_weight", 0.0)),
@@ -138,7 +155,8 @@ def train(
 
     # Initial loader
     cur_bs = get_batch_size(0, cfg)
-    train_loader = make_loader(train_dataset, cur_bs, shuffle=True,
+    cur_train_dataset = train_dataset
+    train_loader = make_loader(cur_train_dataset, cur_bs, shuffle=True,
                                num_workers=cfg.num_workers, pin_memory=cfg.pin_memory)
     val_loader = make_loader(val_dataset, cur_bs, shuffle=False,
                              num_workers=cfg.num_workers, pin_memory=cfg.pin_memory,
@@ -153,7 +171,7 @@ def train(
         new_bs = get_batch_size(step, cfg)
         if new_bs != cur_bs:
             cur_bs = new_bs
-            train_loader = make_loader(train_dataset, cur_bs, shuffle=True,
+            train_loader = make_loader(cur_train_dataset, cur_bs, shuffle=True,
                                        num_workers=cfg.num_workers, pin_memory=cfg.pin_memory)
             val_loader = make_loader(val_dataset, cur_bs, shuffle=False,
                                      num_workers=cfg.num_workers, pin_memory=cfg.pin_memory,
@@ -166,6 +184,12 @@ def train(
         try:
             batch = next(train_iter)
         except StopIteration:
+            if get_next_train_chunk is not None:
+                next_chunk = get_next_train_chunk(cur_bs)
+                if next_chunk is not None:
+                    cur_train_dataset = next_chunk
+                    train_loader = make_loader(cur_train_dataset, cur_bs, shuffle=True,
+                                               num_workers=cfg.num_workers, pin_memory=cfg.pin_memory)
             train_iter = iter(train_loader)
             batch = next(train_iter)
 
@@ -174,29 +198,32 @@ def train(
 
         optimizer.zero_grad(set_to_none=True)
 
-        out = model(batch)
-        logical_logits = out["logical_logits"]
-        logical_labels = batch.get("logical_labels", batch.get("label"))
-        pred_stabs = out.get("pred_stabs")
-        true_stabs = batch.get("true_stabs")
-        token_mask = batch.get("token_mask")
+        with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
+            out = model(batch)
+            logical_logits = out["logical_logits"]
+            logical_labels = batch.get("logical_labels", batch.get("label"))
+            pred_stabs = out.get("pred_stabs")
+            true_stabs = batch.get("true_stabs")
+            token_mask = batch.get("token_mask")
 
-        loss, loss_stats = criterion(
-            logical_logits=logical_logits,
-            logical_labels=logical_labels,
-            pred_stabs=pred_stabs,
-            true_stabs=true_stabs,
-            token_mask=token_mask,
-            step=step,
-            total_steps=cfg.num_steps,
-        )
+            loss, loss_stats = criterion(
+                logical_logits=logical_logits,
+                logical_labels=logical_labels,
+                pred_stabs=pred_stabs,
+                true_stabs=true_stabs,
+                token_mask=token_mask,
+                step=step,
+                total_steps=cfg.num_steps,
+            )
 
-        loss.backward()
+        scaler.scale(loss).backward()
 
         if cfg.grad_clip_norm > 0:
+            scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip_norm)
 
-        optimizer.step()
+        scaler.step(optimizer)
+        scaler.update()
 
         if ema is not None:
             ema.update(model)

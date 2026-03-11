@@ -28,7 +28,9 @@ Checkpoints saved to:
 
 import argparse
 import json
+import queue
 import sys
+import threading
 import time
 from collections import Counter
 from pathlib import Path
@@ -289,6 +291,8 @@ def pretrain_single(
     model_cfg: Optional[ModelConfig] = None,
     use_full_bias: bool = True,
     use_wandb: bool = False,
+    monolithic_file: Optional[Path] = None,
+    chunk_size: int = 50_000,
 ) -> Dict[str, Any]:
     """Train one model for a given distance on all specified bases combined."""
     if train_cfg is None:
@@ -301,10 +305,91 @@ def pretrain_single(
     print(f"PRETRAIN  bases={bases_str}  d={distance}  rounds={rounds_list}")
     print(f"{'='*60}")
 
-    train_dataset, val_dataset, layout = load_pretraining_datasets(
-        data_root, bases, distance, rounds_list,
-        n_train=16_000, n_val=4_000, seed=train_cfg.seed,
-    )
+    if monolithic_file is not None:
+        from streaming_dataset import ChunkedHDF5Dataset, get_reference_layout
+
+        # Each chunk holds BATCHES_PER_CHUNK batches.  When cur_bs grows the
+        # chunk automatically grows so the ratio stays constant.
+        BATCHES_PER_CHUNK = 200
+        initial_chunk_size = BATCHES_PER_CHUNK * train_cfg.batch_init
+
+        print(f"  Streaming mode: {monolithic_file}  "
+              f"batches_per_chunk={BATCHES_PER_CHUNK}  "
+              f"initial_chunk_size={initial_chunk_size}")
+
+        streaming_ds = ChunkedHDF5Dataset(
+            monolithic_file, chunk_size=initial_chunk_size,
+            distance=distance, seed=train_cfg.seed,
+        )
+        layout = get_reference_layout(monolithic_file, distance)
+        train_dataset, val_dataset = streaming_ds.load_chunk_split(
+            0, val_fraction=0.2, seed=train_cfg.seed
+        )
+
+        # --- Dynamic-size prefetch state ---
+        # _ds_holder[0] is the active ChunkedHDF5Dataset (replaced on epoch wrap).
+        # _next_off[0]  is the sample-index offset for the *next* chunk to load.
+        # _seed_ctr[0]  is incremented on each epoch wrap.
+        _ds_holder = [streaming_ds]
+        _next_off   = [initial_chunk_size]   # chunk-0 consumed [0 .. initial_chunk_size)
+        _seed_ctr   = [train_cfg.seed]
+        _prefetch_buf: queue.Queue = queue.Queue(maxsize=3)
+
+        def _load_and_enqueue(ds, offset, size):
+            """Background worker: load one chunk and push it into _prefetch_buf."""
+            try:
+                chunk = ds.load_chunk(offset, chunk_size=size)
+                _prefetch_buf.put(chunk)
+            except Exception as exc:
+                print(f"[prefetch] error at offset={offset}: {exc}")
+                _prefetch_buf.put(None)  # signal failure so caller doesn't hang
+
+        # Kick off prefetch for chunk 1 immediately.
+        threading.Thread(
+            target=_load_and_enqueue,
+            args=(streaming_ds, initial_chunk_size, initial_chunk_size),
+            daemon=True,
+        ).start()
+        _next_off[0] = 2 * initial_chunk_size  # chunk 2 will start here
+
+        def get_next_chunk(cur_bs: int):
+            """Return the next train chunk, adapting chunk size to cur_bs."""
+            dynamic_size = BATCHES_PER_CHUNK * cur_bs
+
+            # Block until the prefetched chunk is ready.
+            chunk = _prefetch_buf.get(timeout=600)
+            if chunk is None:
+                chunk = None  # bubble up; train.py skips on None
+
+            # Determine offset for the *next* prefetch.
+            cur_ds  = _ds_holder[0]
+            next_off = _next_off[0]
+
+            if next_off >= cur_ds.total_samples:
+                # Epoch wrap — create a freshly shuffled dataset.
+                _seed_ctr[0] += 1
+                cur_ds = ChunkedHDF5Dataset(
+                    monolithic_file, chunk_size=dynamic_size,
+                    distance=distance, seed=_seed_ctr[0],
+                )
+                _ds_holder[0] = cur_ds
+                next_off = 0
+
+            _next_off[0] = next_off + dynamic_size
+
+            threading.Thread(
+                target=_load_and_enqueue,
+                args=(cur_ds, next_off, dynamic_size),
+                daemon=True,
+            ).start()
+
+            return chunk
+    else:
+        train_dataset, val_dataset, layout = load_pretraining_datasets(
+            data_root, bases, distance, rounds_list,
+            n_train=16_000, n_val=4_000, seed=train_cfg.seed,
+        )
+        get_next_chunk = None
 
     # Build model with basis="x" as default; readout direction comes from batch basis_idx.
     # layout is layout_ref (max-round folder), so layout["num_cycles"] is already correct.
@@ -328,6 +413,7 @@ def pretrain_single(
         run_name=run_name,
         use_wandb=use_wandb,
         checkpoint_path=ckpt_path,
+        get_next_train_chunk=get_next_chunk,
     )
     elapsed = time.time() - t0
 
@@ -370,6 +456,11 @@ def main():
                         help="Round counts to include in pretraining data")
     parser.add_argument("--data_dir", type=str,
                         default="../../data/trans7_data")
+    parser.add_argument("--monolithic_file", type=str, default=None,
+                        help="Path to HDF5 file from data_random_sample.py. "
+                             "If set, uses streaming data loading instead of --data_dir.")
+    parser.add_argument("--chunk_size", type=int, default=50_000,
+                        help="Samples per rolling window chunk (streaming mode only)")
     parser.add_argument("--checkpoint_dir", type=str, default="checkpoints/pretrain")
     parser.add_argument("--num_steps", type=int, default=2_000_000)
     parser.add_argument("--batch_size", type=int, default=256)
@@ -402,6 +493,8 @@ def main():
         model_cfg = ModelConfig()
         model_cfg.d_model = args.d_model
 
+        mono = (script_dir / args.monolithic_file).resolve() if args.monolithic_file else None
+
         result = pretrain_single(
             bases=args.bases,
             distance=distance,
@@ -412,6 +505,8 @@ def main():
             model_cfg=model_cfg,
             use_full_bias=not args.no_full_bias,
             use_wandb=args.use_wandb,
+            monolithic_file=mono,
+            chunk_size=args.chunk_size,
         )
         results.append(result)
 
