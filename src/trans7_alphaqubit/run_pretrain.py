@@ -483,6 +483,21 @@ def main():
               file=sys.stderr)
         sys.exit(1)
 
+    # If pretrain.h5 doesn't exist yet, build it now before training starts.
+    h5_path = data_root / "pretrain.h5"
+    if not h5_path.exists():
+        import subprocess
+        print(f"\n  pretrain.h5 not found — building from {data_root} ...")
+        builder = repo_root / "data" / "data_random_sample.py"
+        subprocess.run(
+            [sys.executable, str(builder),
+             "--data_dir", str(data_root),
+             "--output",   str(h5_path),
+             "--seed",     "42"],
+            check=True,
+        )
+        print()
+
     distances = [args.distance] if args.distance else args.distances
 
     results = []
