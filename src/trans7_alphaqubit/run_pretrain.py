@@ -475,8 +475,12 @@ def main():
     data_root = (script_dir / args.data_dir).resolve()
     checkpoint_dir = (script_dir / args.checkpoint_dir).resolve()
 
-    if not data_root.exists():
-        print(f"ERROR: data_dir not found: {data_root}", file=sys.stderr)
+    # Ensure surface code data is in the expected directory, moving it if needed.
+    from move_surface_code_dirs import ensure_surface_code_data
+    repo_root = script_dir.parents[1]
+    if not ensure_surface_code_data(repo_root / "data", data_root):
+        print(f"ERROR: No surface_code_b* directories found under {repo_root / 'data'}",
+              file=sys.stderr)
         sys.exit(1)
 
     distances = [args.distance] if args.distance else args.distances
