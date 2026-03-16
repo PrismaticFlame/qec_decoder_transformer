@@ -1,5 +1,5 @@
 """
-streaming_dataset.py - Rolling window HDF5 dataset for pretraining (trans7)
+dataset_streaming.py - Rolling window HDF5 dataset for pretraining (trans7)
 
 ChunkedHDF5Dataset reads a monolithic HDF5 file built by data/data_random_sample.py
 and yields one MultiRoundDataset chunk at a time. Each chunk contains chunk_size
@@ -10,7 +10,7 @@ GroupedBatchSampler can produce D-homogeneous batches, exactly as the existing
 folder-based loading path does.
 
 Usage:
-    from streaming_dataset import ChunkedHDF5Dataset, get_reference_layout
+    from dataset_streaming import ChunkedHDF5Dataset, get_reference_layout
     from dataset import make_loader
 
     ds = ChunkedHDF5Dataset("data/trans7_data/pretrain.h5", chunk_size=50_000, distance=3)

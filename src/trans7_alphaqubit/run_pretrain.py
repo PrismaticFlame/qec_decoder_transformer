@@ -306,7 +306,7 @@ def pretrain_single(
     print(f"{'='*60}")
 
     if monolithic_file is not None:
-        from streaming_dataset import ChunkedHDF5Dataset, get_reference_layout
+        from dataset_streaming import ChunkedHDF5Dataset, get_reference_layout
 
         # Each chunk holds BATCHES_PER_CHUNK batches.  When cur_bs grows the
         # chunk automatically grows so the ratio stays constant.
