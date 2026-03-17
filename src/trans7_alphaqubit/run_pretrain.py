@@ -512,7 +512,7 @@ def main():
         model_cfg = ModelConfig()
         model_cfg.d_model = args.d_model
 
-        mono = (script_dir / args.monolithic_file).resolve() if args.monolithic_file else None
+        mono = (script_dir / args.monolithic_file).resolve() if args.monolithic_file else h5_path
 
         result = pretrain_single(
             bases=args.bases,
