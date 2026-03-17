@@ -50,19 +50,20 @@ class StabilizerEmbedding(nn.Module):
     """
     AlphaQubit-style 2-input embedding (scaling/DEM experiment).
 
-    h = proj_meas(m) + proj_event(e) + E_stab(stab_id) + E_cycle(cycle_id)
+    Per Fig 1C: h = proj_meas(m) + proj_event(e) + E_stab(stab_id)
     h = ResBlock_1(h)
     h = ResBlock_2(h)
 
+    No cycle embedding here — per the paper the cycle index embedding belongs
+    in the Readout (Fig 1F), not the StabilizerEmbedder.
     No leakage inputs — those are only used in the Sycamore/Pauli+ experiments.
     """
 
-    def __init__(self, num_stab: int, num_cycles: int, d_model: int = 256):
+    def __init__(self, num_stab: int, d_model: int = 256):
         super().__init__()
         self.proj_meas = nn.Linear(1, d_model)
         self.proj_event = nn.Linear(1, d_model)
         self.stab_emb = nn.Embedding(num_stab, d_model)
-        self.cycle_emb = nn.Embedding(num_cycles, d_model)
         self.res1 = _EmbedResBlock(d_model)
         self.res2 = _EmbedResBlock(d_model)
 
@@ -71,18 +72,14 @@ class StabilizerEmbedding(nn.Module):
         meas: torch.Tensor,      # (B, S)
         event: torch.Tensor,     # (B, S)
         stab_ids: torch.Tensor,  # (B, S) or (S,)
-        cycle_ids: torch.Tensor, # (B, S) or (S,)
     ) -> torch.Tensor:
         B, S = meas.shape
         if stab_ids.dim() == 1:
             stab_ids = stab_ids.unsqueeze(0).expand(B, S)
-        if cycle_ids.dim() == 1:
-            cycle_ids = cycle_ids.unsqueeze(0).expand(B, S)
 
         h = (self.proj_meas(meas.unsqueeze(-1))
              + self.proj_event(event.unsqueeze(-1))
-             + self.stab_emb(stab_ids)
-             + self.cycle_emb(cycle_ids))
+             + self.stab_emb(stab_ids))
         h = self.res1(h)
         h = self.res2(h)
         return h
@@ -99,34 +96,29 @@ class FinalRoundEmbedding(nn.Module):
     for on-basis computed stabilizers. Off-basis stabilizers in the final round
     use a single shared learned vector (offbasis_final_emb in AlphaQubitModel).
 
-    h = proj_meas(m) + proj_event(e) + E_stab(stab_id) + E_cycle(cycle_id)
-    (no ResBlocks — this is the 'linear projection' the paper refers to)
+    h = proj_meas(m) + proj_event(e) + E_stab(stab_id)
+    (no ResBlocks, no cycle embedding — matches Fig 1C)
     """
 
-    def __init__(self, num_stab: int, num_cycles: int, d_model: int = 256):
+    def __init__(self, num_stab: int, d_model: int = 256):
         super().__init__()
         self.proj_meas = nn.Linear(1, d_model)
         self.proj_event = nn.Linear(1, d_model)
         self.stab_emb = nn.Embedding(num_stab, d_model)
-        self.cycle_emb = nn.Embedding(num_cycles, d_model)
 
     def forward(
         self,
         meas: torch.Tensor,      # (B, S)
         event: torch.Tensor,     # (B, S)
         stab_ids: torch.Tensor,  # (B, S) or (S,)
-        cycle_ids: torch.Tensor, # (B, S) or (S,)
     ) -> torch.Tensor:
         B, S = meas.shape
         if stab_ids.dim() == 1:
             stab_ids = stab_ids.unsqueeze(0).expand(B, S)
-        if cycle_ids.dim() == 1:
-            cycle_ids = cycle_ids.unsqueeze(0).expand(B, S)
 
         return (self.proj_meas(meas.unsqueeze(-1))
                 + self.proj_event(event.unsqueeze(-1))
-                + self.stab_emb(stab_ids)
-                + self.cycle_emb(cycle_ids))
+                + self.stab_emb(stab_ids))
 
 
 # ============================================================
@@ -360,6 +352,7 @@ class ReadoutResNet(nn.Module):
         d_model: int,
         readout_dim: int = 48,
         num_layers: int = 16,
+        num_cycles: int = 26,
         distance: int = 3,
         coord_to_index: Optional[dict] = None,
         index_to_coord: Optional[List] = None,
@@ -371,6 +364,8 @@ class ReadoutResNet(nn.Module):
         self.distance = distance
         self.coord_to_index = coord_to_index or {}
         self.basis = basis
+        # Per Fig 1F: "Cycle k n → Embed" fed into the line mean pool stage.
+        self.cycle_emb = nn.Embedding(num_cycles, readout_dim)
 
         # Precompute stab_id -> (grid_i, grid_j) lookup tensors from index_to_coord.
         # index_to_coord[stab_id] = (i, j) — one entry per stabilizer.
@@ -397,12 +392,15 @@ class ReadoutResNet(nn.Module):
         X: torch.Tensor,
         basis_idx: Optional[torch.Tensor] = None,
         stab_ids: Optional[torch.Tensor] = None,
+        cycle_n: Optional[int] = None,
     ) -> torch.Tensor:
         """
         X         : (B, S, D)
         basis_idx : (B,) int tensor with 0=X, 1=Z. If None, falls back to self.basis.
         stab_ids  : (S,) stabilizer ID for each token. Uses precomputed grid lookup.
                     If None, assumes token index == stab_id (legacy).
+        cycle_n   : int, the final cycle index (T-1). Used for the cycle embedding
+                    added at the line mean pool stage per Fig 1F.
         """
         B, S, D = X.shape
         H = self.grid_h
@@ -449,6 +447,12 @@ class ReadoutResNet(nn.Module):
             x = out
 
         K = x.shape[2]
+        # Fig 1F: add cycle embedding ("Cycle k n → Embed") before the ResNet.
+        if cycle_n is not None:
+            cn = torch.tensor(cycle_n, dtype=torch.long, device=x.device)
+            cyc_e = self.cycle_emb(cn)                    # (readout_dim,)
+            x = x + cyc_e.view(1, self.readout_dim, 1)   # broadcast over B and K
+
         x = x.permute(0, 2, 1).contiguous().reshape(B * K, self.readout_dim)
 
         for block in self.res_blocks:
@@ -508,8 +512,8 @@ class AlphaQubitModel(nn.Module):
         use_grad_checkpoint: bool = False,
     ):
         super().__init__()
-        self.embed = StabilizerEmbedding(num_stab=num_stab, num_cycles=num_cycles, d_model=d_model)
-        self.final_proj = FinalRoundEmbedding(num_stab=num_stab, num_cycles=num_cycles, d_model=d_model)
+        self.embed = StabilizerEmbedding(num_stab=num_stab, d_model=d_model)
+        self.final_proj = FinalRoundEmbedding(num_stab=num_stab, d_model=d_model)
         self.offbasis_final_emb = nn.Parameter(torch.zeros(d_model))
 
         self.core = RNNCore(d_model, d_attn, d_mid, db, H, n_layers, conv_blocks, widen=widen)
@@ -519,6 +523,7 @@ class AlphaQubitModel(nn.Module):
             d_model=d_model,
             readout_dim=readout_dim,
             num_layers=readout_resnet_layers,
+            num_cycles=num_cycles,
             distance=distance,
             coord_to_index=coord_to_index or {},
             index_to_coord=index_to_coord or [],
@@ -639,14 +644,13 @@ class AlphaQubitModel(nn.Module):
             meas_ts = torch.cumsum(event_ts, dim=1) % 2
 
         stab_ts = stab_id[idx].unsqueeze(0).expand(B, T, S)
-        cyc_ts = cycle_id[idx].unsqueeze(0).expand(B, T, S)
 
-        # 2-input embedding for all cycles (meas + event; no leakage for DEM/scaling)
+        # 2-input embedding for all cycles (meas + event + stab_id; no cycle or leakage)
+        # Per Fig 1C: Index i (stab_id) is embedded; cycle index goes to Readout (Fig 1F).
         S_seq = self.embed(
             meas_ts.reshape(B * T, S),
             event_ts.reshape(B * T, S),
             stab_ts.reshape(B * T, S),
-            cyc_ts.reshape(B * T, S),
         ).reshape(B, T, S, -1)
         D = S_seq.size(-1)
 
@@ -660,7 +664,7 @@ class AlphaQubitModel(nn.Module):
 
             final_emb = self.final_proj(
                 meas_ts[:, -1], event_ts[:, -1],
-                stab_ts[:, -1], cyc_ts[:, -1],
+                stab_ts[:, -1],
             )  # (B, S, D)
 
             stab_ids_final = stab_id[idx[-1]]
@@ -705,11 +709,13 @@ class AlphaQubitModel(nn.Module):
             if self.use_next_stab and t < T - 1:
                 pred_list.append(self.next_head(X))
 
-        # Readout — pass basis_idx and last-cycle stab_ids for correct scatter/pool
+        # Readout — pass basis_idx, last-cycle stab_ids, and cycle index (T-1) per Fig 1F
         Xp = self.readout_ln(X)
         basis_idx = batch.get("basis_idx")
         # stab_ids_t is still set to the last cycle's stab IDs from the loop above
-        logical_logits = self.readout(Xp, basis_idx=basis_idx, stab_ids=stab_ids_t)
+        logical_logits = self.readout(
+            Xp, basis_idx=basis_idx, stab_ids=stab_ids_t, cycle_n=T - 1
+        )
 
         out: Dict[str, torch.Tensor] = {"logical_logits": logical_logits}
 
