@@ -1,6 +1,7 @@
 import streamlit as st
 from components.graphs import createDataPlotly
 from components.Data import Data
+from components.comparisons import getOverview, getStructure
 
 # Data file initialization
 x_data = Data('x_d3_r6_eval.csv', "X", 3, 6, 500)
@@ -62,24 +63,34 @@ v6Btn.button("v6", width='stretch', on_click = btnClickV6, disabled= getVersion(
 if (st.session_state['version'] != 'All'):
     st.header(f"{st.session_state['version']}: Short Summary")
     st.write("Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.")
-    st.space("small")
 
 basis_container = st.container()
 
+
+st.header("Results")
 # X and Z buttons
 xBtn, zBtn = st.columns(2, vertical_alignment="bottom")
 
 xBtn.button("X data", width='stretch', on_click = btnClickXZ, disabled=isX())
 zBtn.button("Z data", width='stretch', on_click = btnClickXZ, disabled= not isX())
 
-basis_container.write(f"Current basis: {st.session_state['basis']}")
 
-
-st.header("Results")
 graph = st.container()
 with st.expander("Show raw metrics"):
     dataContainer = st.container()
 createDataPlotly(data, graph, dataContainer, title=f"{data.basis} basis, Distance {data.d}", subtitle=f"{data.shots} shots, Rounds {data.r}")
 
 st.header("Model details")
-st.write("Lorem ipsum dolor sit amet consectetur adipiscing elit. Consectetur adipiscing elit quisque faucibus ex sapien vitae. Ex sapien vitae pellentesque sem placerat in id. Placerat in id cursus mi pretium tellus duis. Pretium tellus duis convallis tempus leo eu aenean.")
+overviewTab, structureTab = st.tabs(["Overview", "Data Input and Structure"])
+
+#Overview
+overviewTab.dataframe(getOverview(getVersion()))
+
+#Generation
+generationDF, formatDF, inputDF = (getStructure(getVersion()))
+structureTab.subheader("Data Generation")
+structureTab.dataframe(generationDF)
+structureTab.subheader("Data Format")
+structureTab.dataframe(formatDF)
+structureTab.subheader("Input Representation to the Model")
+structureTab.dataframe(inputDF)
