@@ -34,26 +34,35 @@ import threading
 import time
 from collections import Counter
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import torch
 import torch.nn as nn
-
 from dataset import (
-    SyndromeDataset, MultiRoundDataset, make_loader,
-    load_folder, make_train_val_split,
+    MultiRoundDataset,
+    SyndromeDataset,
+    load_folder,
+    make_loader,
+    make_train_val_split,
+)
+from hyperparameters import (
+    ModelConfig,
+    TrainConfig,
+    get_dilations,
+    get_lr,
+    pretrain_config,
 )
 from layout import get_or_build_layout
-from hyperparameters import ModelConfig, TrainConfig, get_lr, get_dilations, pretrain_config
 from model import AlphaQubitModel, ScatteringResidualConvBlock
-from train import train, save_history
-from utils import AttentionBiasProvider, ManhattanDistanceBias
 
+from train import save_history, train
+from utils import AttentionBiasProvider, ManhattanDistanceBias
 
 # -----------------------------------------------------------------------
 # Folder discovery helpers
 # -----------------------------------------------------------------------
+
 
 def find_folders(
     data_root: Path,
@@ -97,7 +106,9 @@ def load_pretraining_datasets(
             f"rounds={rounds_list} in {data_root}"
         )
 
-    print(f"  Found {len(folders)} folder(s) for bases={[b.upper() for b in bases]} d={distance}")
+    print(
+        f"  Found {len(folders)} folder(s) for bases={[b.upper() for b in bases]} d={distance}"
+    )
 
     train_ds_list: List[SyndromeDataset] = []
     val_ds_list: List[SyndromeDataset] = []
@@ -116,7 +127,8 @@ def load_pretraining_datasets(
 
         # Pick layout from a max-round folder as the model reference
         if layout_ref is None or (
-            f"_r{max_round:02d}_" in folder.name and layout["num_stab"] > layout_ref["num_stab"]
+            f"_r{max_round:02d}_" in folder.name
+            and layout["num_stab"] > layout_ref["num_stab"]
         ):
             layout_ref = layout
 
@@ -131,15 +143,21 @@ def load_pretraining_datasets(
         actual_n_val = min(n_val, N - actual_n_train)
 
         (ev_tr, lb_tr, ms_tr), (ev_val, lb_val, ms_val) = make_train_val_split(
-            events, labels, meas,
-            n_train=actual_n_train, n_val=actual_n_val, seed=seed,
+            events,
+            labels,
+            meas,
+            n_train=actual_n_train,
+            n_val=actual_n_val,
+            seed=seed,
         )
 
         try:
             train_ds_list.append(SyndromeDataset(ev_tr, lb_tr, layout, ms_tr))
             val_ds_list.append(SyndromeDataset(ev_val, lb_val, layout, ms_val))
-            print(f"    Loaded {folder.name}: train={actual_n_train}, val={actual_n_val}, "
-                  f"D={events.shape[1]}")
+            print(
+                f"    Loaded {folder.name}: train={actual_n_train}, val={actual_n_val}, "
+                f"D={events.shape[1]}"
+            )
         except Exception as e:
             print(f"    SKIP {folder.name}: dataset error: {e}")
             continue
@@ -150,8 +168,12 @@ def load_pretraining_datasets(
             "Check that events.01 and obs_flips.01 exist in the data folders."
         )
 
-    train_dataset = MultiRoundDataset(train_ds_list) if len(train_ds_list) > 1 else train_ds_list[0]
-    val_dataset = MultiRoundDataset(val_ds_list) if len(val_ds_list) > 1 else val_ds_list[0]
+    train_dataset = (
+        MultiRoundDataset(train_ds_list) if len(train_ds_list) > 1 else train_ds_list[0]
+    )
+    val_dataset = (
+        MultiRoundDataset(val_ds_list) if len(val_ds_list) > 1 else val_ds_list[0]
+    )
 
     return train_dataset, val_dataset, layout_ref
 
@@ -159,6 +181,7 @@ def load_pretraining_datasets(
 # -----------------------------------------------------------------------
 # Model construction
 # -----------------------------------------------------------------------
+
 
 def build_conv_blocks(
     distance: int,
@@ -208,18 +231,20 @@ def build_conv_blocks(
     dilations = get_dilations(distance)
     channels_list = [model_cfg.conv_dim] * model_cfg.conv_layers
 
-    blocks = nn.ModuleList([
-        ScatteringResidualConvBlock(
-            d=distance,
-            d_d=d_model,
-            L_layers=model_cfg.conv_layers,
-            channels_list=channels_list,
-            coord_to_index=coord_to_index,
-            index_to_coord=index_to_coord,
-            dilation_list=dilations,
-        )
-        for _ in range(model_cfg.syndrome_layers)
-    ])
+    blocks = nn.ModuleList(
+        [
+            ScatteringResidualConvBlock(
+                d=distance,
+                d_d=d_model,
+                L_layers=model_cfg.conv_layers,
+                channels_list=channels_list,
+                coord_to_index=coord_to_index,
+                index_to_coord=index_to_coord,
+                dilation_list=dilations,
+            )
+            for _ in range(model_cfg.syndrome_layers)
+        ]
+    )
     return blocks, coord_to_index, index_to_coord
 
 
@@ -233,7 +258,9 @@ def build_model(
     distance = layout["distance"]
     d_model = model_cfg.d_model
 
-    conv_blocks, coord_to_index, index_to_coord = build_conv_blocks(distance, d_model, layout, model_cfg)
+    conv_blocks, coord_to_index, index_to_coord = build_conv_blocks(
+        distance, d_model, layout, model_cfg
+    )
 
     if use_full_bias:
         bias_provider = AttentionBiasProvider(
@@ -281,6 +308,7 @@ def build_model(
 # Main
 # -----------------------------------------------------------------------
 
+
 def pretrain_single(
     bases: List[str],
     distance: int,
@@ -301,9 +329,9 @@ def pretrain_single(
         model_cfg = ModelConfig()
 
     bases_str = "+".join(b.upper() for b in sorted(bases))
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"PRETRAIN  bases={bases_str}  d={distance}  rounds={rounds_list}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     if monolithic_file is not None:
         from dataset_streaming import ChunkedHDF5Dataset, get_reference_layout
@@ -313,13 +341,17 @@ def pretrain_single(
         BATCHES_PER_CHUNK = 200
         initial_chunk_size = BATCHES_PER_CHUNK * train_cfg.batch_init
 
-        print(f"  Streaming mode: {monolithic_file}  "
-              f"batches_per_chunk={BATCHES_PER_CHUNK}  "
-              f"initial_chunk_size={initial_chunk_size}")
+        print(
+            f"  Streaming mode: {monolithic_file}  "
+            f"batches_per_chunk={BATCHES_PER_CHUNK}  "
+            f"initial_chunk_size={initial_chunk_size}"
+        )
 
         streaming_ds = ChunkedHDF5Dataset(
-            monolithic_file, chunk_size=initial_chunk_size,
-            distance=distance, seed=train_cfg.seed,
+            monolithic_file,
+            chunk_size=initial_chunk_size,
+            distance=distance,
+            seed=train_cfg.seed,
         )
         layout = get_reference_layout(monolithic_file, distance)
         train_dataset, val_dataset = streaming_ds.load_chunk_split(
@@ -331,8 +363,8 @@ def pretrain_single(
         # _next_off[0]  is the sample-index offset for the *next* chunk to load.
         # _seed_ctr[0]  is incremented on each epoch wrap.
         _ds_holder = [streaming_ds]
-        _next_off   = [initial_chunk_size]   # chunk-0 consumed [0 .. initial_chunk_size)
-        _seed_ctr   = [train_cfg.seed]
+        _next_off = [initial_chunk_size]  # chunk-0 consumed [0 .. initial_chunk_size)
+        _seed_ctr = [train_cfg.seed]
         _prefetch_buf: queue.Queue = queue.Queue(maxsize=3)
 
         def _load_and_enqueue(ds, offset, size):
@@ -362,15 +394,17 @@ def pretrain_single(
                 chunk = None  # bubble up; train.py skips on None
 
             # Determine offset for the *next* prefetch.
-            cur_ds  = _ds_holder[0]
+            cur_ds = _ds_holder[0]
             next_off = _next_off[0]
 
             if next_off >= cur_ds.total_samples:
                 # Epoch wrap — create a freshly shuffled dataset.
                 _seed_ctr[0] += 1
                 cur_ds = ChunkedHDF5Dataset(
-                    monolithic_file, chunk_size=dynamic_size,
-                    distance=distance, seed=_seed_ctr[0],
+                    monolithic_file,
+                    chunk_size=dynamic_size,
+                    distance=distance,
+                    seed=_seed_ctr[0],
                 )
                 _ds_holder[0] = cur_ds
                 next_off = 0
@@ -386,8 +420,13 @@ def pretrain_single(
             return chunk
     else:
         train_dataset, val_dataset, layout = load_pretraining_datasets(
-            data_root, bases, distance, rounds_list,
-            n_train=16_000, n_val=4_000, seed=train_cfg.seed,
+            data_root,
+            bases,
+            distance,
+            rounds_list,
+            n_train=16_000,
+            n_val=4_000,
+            seed=train_cfg.seed,
         )
         get_next_chunk = None
 
@@ -417,15 +456,18 @@ def pretrain_single(
     )
     elapsed = time.time() - t0
 
-    torch.save({
-        "model_state_dict": model.state_dict(),
-        "layout": layout,
-        "bases": bases,
-        "distance": distance,
-        "best_ler": best["ler"],
-        "best_step": best["step"],
-        "train_time": elapsed,
-    }, ckpt_path)
+    torch.save(
+        {
+            "model_state_dict": model.state_dict(),
+            "layout": layout,
+            "bases": bases,
+            "distance": distance,
+            "best_ler": best["ler"],
+            "best_step": best["step"],
+            "train_time": elapsed,
+        },
+        ckpt_path,
+    )
     print(f"\n  Best LER: {best['ler']:.6f} at step {best['step']}")
     print(f"  Checkpoint: {ckpt_path}")
 
@@ -433,40 +475,68 @@ def pretrain_single(
         save_history(best["history"], checkpoint_dir, run_name)
 
     return {
-        "bases": bases, "distance": distance,
-        "best_ler": best["ler"], "best_step": best["step"],
-        "train_time": elapsed, "checkpoint_path": ckpt_path,
+        "bases": bases,
+        "distance": distance,
+        "best_ler": best["ler"],
+        "best_step": best["step"],
+        "train_time": elapsed,
+        "checkpoint_path": ckpt_path,
     }
 
 
 def main():
     parser = argparse.ArgumentParser(
         description="Trans7 pretraining on Google DEM-simulated data. "
-                    "Trains one model per distance on all bases combined.",
+        "Trains one model per distance on all bases combined.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--bases", nargs="+", choices=["x", "z"], default=["x", "z"],
-                        help="Bases to include in training (combined into one model per distance)")
-    parser.add_argument("--distance", type=int, default=None,
-                        help="Single distance (overrides --distances)")
-    parser.add_argument("--distances", type=int, nargs="+", default=[3, 5],
-                        help="Distances to train (one model each)")
-    parser.add_argument("--rounds", type=int, nargs="+",
-                        default=[1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25],
-                        help="Round counts to include in pretraining data")
-    parser.add_argument("--data_dir", type=str,
-                        default="../../data/trans7_data")
-    parser.add_argument("--monolithic_file", type=str, default=None,
-                        help="Path to HDF5 file from data_random_sample.py. "
-                             "If set, uses streaming data loading instead of --data_dir.")
-    parser.add_argument("--chunk_size", type=int, default=50_000,
-                        help="Samples per rolling window chunk (streaming mode only)")
+    parser.add_argument(
+        "--bases",
+        nargs="+",
+        choices=["x", "z"],
+        default=["x", "z"],
+        help="Bases to include in training (combined into one model per distance)",
+    )
+    parser.add_argument(
+        "--distance",
+        type=int,
+        default=None,
+        help="Single distance (overrides --distances)",
+    )
+    parser.add_argument(
+        "--distances",
+        type=int,
+        nargs="+",
+        default=[3],
+        help="Distances to train (one model each)",
+    )
+    parser.add_argument(
+        "--rounds",
+        type=int,
+        nargs="+",
+        default=[1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25],
+        help="Round counts to include in pretraining data",
+    )
+    parser.add_argument("--data_dir", type=str, default="../../data/trans7_data")
+    parser.add_argument(
+        "--monolithic_file",
+        type=str,
+        default=None,
+        help="Path to HDF5 file from data_random_sample.py. "
+        "If set, uses streaming data loading instead of --data_dir.",
+    )
+    parser.add_argument(
+        "--chunk_size",
+        type=int,
+        default=50_000,
+        help="Samples per rolling window chunk (streaming mode only)",
+    )
     parser.add_argument("--checkpoint_dir", type=str, default="checkpoints/pretrain")
-    parser.add_argument("--num_steps", type=int, default=2_000_000)
+    parser.add_argument("--num_steps", type=int, default=1_000_000)
     parser.add_argument("--batch_size", type=int, default=256)
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--d_model", type=int, default=256)
-    parser.add_argument("--eval_every", type=int, default=5_000)
+    parser.add_argument("--eval_every", type=int, default=15_000)
     parser.add_argument("--use_wandb", action="store_true")
     parser.add_argument("--no_full_bias", action="store_true")
     args = parser.parse_args()
@@ -477,23 +547,33 @@ def main():
 
     # Ensure surface code data is in the expected directory, moving it if needed.
     from move_surface_code_dirs import ensure_surface_code_data
+
     repo_root = script_dir.parents[1]
     if not ensure_surface_code_data(repo_root / "data", data_root):
-        print(f"ERROR: No surface_code_b* directories found under {repo_root / 'data'}",
-              file=sys.stderr)
+        print(
+            f"ERROR: No surface_code_b* directories found under {repo_root / 'data'}",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     # If pretrain.h5 doesn't exist yet, build it now before training starts.
     h5_path = data_root / "pretrain.h5"
     if not h5_path.exists():
         import subprocess
+
         print(f"\n  pretrain.h5 not found — building from {data_root} ...")
         builder = repo_root / "data" / "data_random_sample.py"
         subprocess.run(
-            [sys.executable, str(builder),
-             "--data_dir", str(data_root),
-             "--output",   str(h5_path),
-             "--seed",     "42"],
+            [
+                sys.executable,
+                str(builder),
+                "--data_dir",
+                str(data_root),
+                "--output",
+                str(h5_path),
+                "--seed",
+                "42",
+            ],
             check=True,
         )
         print()
@@ -512,7 +592,11 @@ def main():
         model_cfg = ModelConfig()
         model_cfg.d_model = args.d_model
 
-        mono = (script_dir / args.monolithic_file).resolve() if args.monolithic_file else h5_path
+        mono = (
+            (script_dir / args.monolithic_file).resolve()
+            if args.monolithic_file
+            else h5_path
+        )
 
         result = pretrain_single(
             bases=args.bases,
@@ -529,12 +613,14 @@ def main():
         )
         results.append(result)
 
-    print(f"\n{'='*60}\nPRETRAINING SUMMARY\n{'='*60}")
+    print(f"\n{'=' * 60}\nPRETRAINING SUMMARY\n{'=' * 60}")
     for r in results:
-        bases_str = "+".join(b.upper() for b in sorted(r['bases']))
-        print(f"  bases={bases_str} d={r['distance']}  "
-              f"LER={r['best_ler']:.6f}  step={r['best_step']}  "
-              f"time={r['train_time']:.0f}s")
+        bases_str = "+".join(b.upper() for b in sorted(r["bases"]))
+        print(
+            f"  bases={bases_str} d={r['distance']}  "
+            f"LER={r['best_ler']:.6f}  step={r['best_step']}  "
+            f"time={r['train_time']:.0f}s"
+        )
 
     idx_path = checkpoint_dir / "pretrain_index.json"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)

@@ -21,12 +21,13 @@ except ImportError:
 from dataset import make_loader, set_seed
 from ema import EMA
 from loss import QECMultiTaskLoss
-from utils import Lion
 
+from utils import Lion
 
 # -----------------------------------------------------------------------
 # LR / batch schedule
 # -----------------------------------------------------------------------
+
 
 def get_batch_size(step: int, cfg) -> int:
     bs = cfg.batch_init
@@ -39,7 +40,7 @@ def get_batch_size(step: int, cfg) -> int:
 
 def apply_lr_schedule(optimizer: torch.optim.Optimizer, step: int, cfg) -> float:
     k = sum(step >= s for s in cfg.lr_decay_steps)
-    lr = cfg.lr * (cfg.lr_decay_factor ** k)
+    lr = cfg.lr * (cfg.lr_decay_factor**k)
     for pg in optimizer.param_groups:
         pg["lr"] = lr
     return float(lr)
@@ -48,6 +49,7 @@ def apply_lr_schedule(optimizer: torch.optim.Optimizer, step: int, cfg) -> float
 # -----------------------------------------------------------------------
 # LER evaluation
 # -----------------------------------------------------------------------
+
 
 @torch.no_grad()
 def compute_ler(
@@ -64,8 +66,10 @@ def compute_ler(
     try:
         all_preds, all_labels = [], []
         for batch in loader:
-            batch = {k: v.to(device, non_blocking=True) if torch.is_tensor(v) else v
-                     for k, v in batch.items()}
+            batch = {
+                k: v.to(device, non_blocking=True) if torch.is_tensor(v) else v
+                for k, v in batch.items()
+            }
             out = model(batch)
             logits = out["logical_logits"].view(-1)
             labels = batch.get("logical_labels", batch.get("label")).view(-1).float()
@@ -84,6 +88,7 @@ def compute_ler(
 # Main training function
 # -----------------------------------------------------------------------
 
+
 def train(
     model: nn.Module,
     train_dataset,
@@ -94,13 +99,20 @@ def train(
     use_wandb: bool = False,
     checkpoint_path: Optional[str] = None,
     get_next_train_chunk=None,
+    rank: int = 0,
+    world_size: int = 1,
 ) -> Dict[str, Any]:
     """
     Train model according to cfg (TrainConfig).
 
+    Args:
+        rank: Process rank for distributed training (0 = main process).
+        world_size: Total number of processes (1 = single-GPU).
+
     Returns a dict with best LER, best step, history, and the best checkpoint
     state dict (shadow params from EMA if available).
     """
+    is_main = rank == 0
     set_seed(cfg.seed)
     device = torch.device(cfg.device)
     model.to(device)
@@ -114,7 +126,9 @@ def train(
             weight_decay=cfg.weight_decay,
         )
     else:
-        raise ValueError(f"Unknown optimizer: {cfg.optimizer!r}. Only 'lion' is supported.")
+        raise ValueError(
+            f"Unknown optimizer: {cfg.optimizer!r}. Only 'lion' is supported."
+        )
 
     # EMA
     ema = EMA(model, alpha=cfg.ema_alpha) if cfg.use_ema else None
@@ -129,11 +143,13 @@ def train(
     else:
         amp_dtype = torch.float16
         use_scaler = use_amp
-    scaler = torch.cuda.amp.GradScaler(enabled=use_scaler)
-    if use_amp:
+    scaler = torch.amp.GradScaler("cuda", enabled=use_scaler)
+    if use_amp and is_main:
         gpu_name = torch.cuda.get_device_name(device)
-        print(f"  AMP: {amp_dtype} on {gpu_name}"
-              + (" (GradScaler off)" if not use_scaler else " (GradScaler on)"))
+        print(
+            f"  AMP: {amp_dtype} on {gpu_name}"
+            + (" (GradScaler off)" if not use_scaler else " (GradScaler on)")
+        )
 
     # Loss criterion
     criterion = QECMultiTaskLoss(
@@ -144,26 +160,46 @@ def train(
         warmup_ratio=float(getattr(cfg, "next_stab_warmup_ratio", 0.3)),
     ).to(device)
 
-    wb_on = bool(use_wandb and wandb is not None)
+    wb_on = bool(use_wandb and wandb is not None and is_main)
     if wb_on:
         wandb.init(project="alphaqubit-trans7", name=run_name, config=asdict(cfg))
 
     best: Dict[str, Any] = {
-        "step": -1, "ler": float("inf"), "shadow": None,
+        "step": -1,
+        "ler": float("inf"),
+        "shadow": None,
     }
     history: Dict[str, List] = {"train": [], "eval": []}
 
     # Initial loader
     cur_bs = get_batch_size(0, cfg)
     cur_train_dataset = train_dataset
-    train_loader = make_loader(cur_train_dataset, cur_bs, shuffle=True,
-                               num_workers=cfg.num_workers, pin_memory=cfg.pin_memory)
-    val_loader = make_loader(val_dataset, cur_bs, shuffle=False,
-                             num_workers=cfg.num_workers, pin_memory=cfg.pin_memory,
-                             drop_last=False)
+    loader_kwargs = dict(
+        num_workers=cfg.num_workers,
+        pin_memory=cfg.pin_memory,
+        rank=rank,
+        world_size=world_size,
+    )
+    train_loader = make_loader(
+        cur_train_dataset,
+        cur_bs,
+        shuffle=True,
+        **loader_kwargs,
+    )
+    val_loader = make_loader(
+        val_dataset,
+        cur_bs,
+        shuffle=False,
+        drop_last=False,
+        **loader_kwargs,
+    )
     train_iter = iter(train_loader)
 
-    pbar = tqdm(range(cfg.num_steps), desc=run_name, dynamic_ncols=True)
+    pbar = (
+        tqdm(range(cfg.num_steps), desc=run_name, dynamic_ncols=True)
+        if is_main
+        else range(cfg.num_steps)
+    )
     model.train()
 
     for step in pbar:
@@ -171,11 +207,19 @@ def train(
         new_bs = get_batch_size(step, cfg)
         if new_bs != cur_bs:
             cur_bs = new_bs
-            train_loader = make_loader(cur_train_dataset, cur_bs, shuffle=True,
-                                       num_workers=cfg.num_workers, pin_memory=cfg.pin_memory)
-            val_loader = make_loader(val_dataset, cur_bs, shuffle=False,
-                                     num_workers=cfg.num_workers, pin_memory=cfg.pin_memory,
-                                     drop_last=False)
+            train_loader = make_loader(
+                cur_train_dataset,
+                cur_bs,
+                shuffle=True,
+                **loader_kwargs,
+            )
+            val_loader = make_loader(
+                val_dataset,
+                cur_bs,
+                shuffle=False,
+                drop_last=False,
+                **loader_kwargs,
+            )
             train_iter = iter(train_loader)
 
         lr = apply_lr_schedule(optimizer, step, cfg)
@@ -188,13 +232,19 @@ def train(
                 next_chunk = get_next_train_chunk(cur_bs)
                 if next_chunk is not None:
                     cur_train_dataset = next_chunk
-                    train_loader = make_loader(cur_train_dataset, cur_bs, shuffle=True,
-                                               num_workers=cfg.num_workers, pin_memory=cfg.pin_memory)
+                    train_loader = make_loader(
+                        cur_train_dataset,
+                        cur_bs,
+                        shuffle=True,
+                        **loader_kwargs,
+                    )
             train_iter = iter(train_loader)
             batch = next(train_iter)
 
-        batch = {k: v.to(device, non_blocking=True) if torch.is_tensor(v) else v
-                 for k, v in batch.items()}
+        batch = {
+            k: v.to(device, non_blocking=True) if torch.is_tensor(v) else v
+            for k, v in batch.items()
+        }
 
         optimizer.zero_grad(set_to_none=True)
 
@@ -228,34 +278,40 @@ def train(
         if ema is not None:
             ema.update(model)
 
-        # Logging
-        if step % cfg.log_every == 0:
+        # Logging (rank 0 only)
+        if is_main and step % cfg.log_every == 0:
             log = {
                 "step": step,
                 "lr": lr,
                 "batch_size": cur_bs,
                 "loss": float(loss.detach().cpu()),
                 "loss_main": float(loss_stats["logical_loss"].cpu()),
-                "loss_next": float(loss_stats["stab_loss"].cpu()
-                                   if torch.is_tensor(loss_stats["stab_loss"])
-                                   else loss_stats["stab_loss"]),
+                "loss_next": float(
+                    loss_stats["stab_loss"].cpu()
+                    if torch.is_tensor(loss_stats["stab_loss"])
+                    else loss_stats["stab_loss"]
+                ),
             }
             if wb_on:
                 wandb.log(log, step=step)
-            pbar.set_postfix({
-                "loss": f"{log['loss']:.4g}",
-                "lr": f"{lr:.3g}",
-                "bs": cur_bs,
-            })
-            history["train"].append({
-                "step": step,
-                "loss": log["loss"],
-                "loss_main": log["loss_main"],
-                "lr": lr,
-            })
+            pbar.set_postfix(
+                {
+                    "loss": f"{log['loss']:.4g}",
+                    "lr": f"{lr:.3g}",
+                    "bs": cur_bs,
+                }
+            )
+            history["train"].append(
+                {
+                    "step": step,
+                    "loss": log["loss"],
+                    "loss_main": log["loss_main"],
+                    "lr": lr,
+                }
+            )
 
-        # Validation
-        if step > 0 and step % cfg.eval_every == 0:
+        # Validation (rank 0 only)
+        if is_main and step > 0 and step % cfg.eval_every == 0:
             dev_ler = compute_ler(model, val_loader, device, ema=ema)
 
             if wb_on:
@@ -279,11 +335,13 @@ def train(
                 if checkpoint_path is not None:
                     _save_checkpoint(model, ema, cfg, best, checkpoint_path)
 
-            history["eval"].append({
-                "step": step,
-                "dev_ler": dev_ler,
-                "best_ler": best["ler"],
-            })
+            history["eval"].append(
+                {
+                    "step": step,
+                    "dev_ler": dev_ler,
+                    "best_ler": best["ler"],
+                }
+            )
             model.train()
 
     # Restore best parameters into model
@@ -304,13 +362,17 @@ def train(
 # Checkpoint helpers
 # -----------------------------------------------------------------------
 
+
 def _save_checkpoint(model, ema, cfg, best, path):
-    torch.save({
-        "model_state_dict": model.state_dict(),
-        "ema_state_dict": ema.state_dict() if ema is not None else None,
-        "best_ler": best["ler"],
-        "best_step": best["step"],
-    }, path)
+    torch.save(
+        {
+            "model_state_dict": model.state_dict(),
+            "ema_state_dict": ema.state_dict() if ema is not None else None,
+            "best_ler": best["ler"],
+            "best_step": best["step"],
+        },
+        path,
+    )
 
 
 def save_history(history: Dict[str, List], out_dir: Path, run_name: str):

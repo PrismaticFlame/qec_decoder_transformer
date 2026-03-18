@@ -6,8 +6,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import List, Optional
-import torch
 
+import torch
 
 # -----------------------------------------------------------------------
 # Dilation table (per code distance)
@@ -52,6 +52,7 @@ def get_lr(distance: int) -> float:
 # Model hyperparameters
 # -----------------------------------------------------------------------
 
+
 @dataclass
 class ModelConfig:
     # Feature embedding
@@ -63,8 +64,8 @@ class ModelConfig:
     num_heads: int = 4
     key_size: int = 32
     conv_layers: int = 3
-    conv_dim: int = 128        # convolution channel dimension
-    dense_widen: int = 5       # GatedDenseBlock widening factor
+    conv_dim: int = 128  # convolution channel dimension
+    dense_widen: int = 5  # GatedDenseBlock widening factor
 
     # Attention bias
     bias_dim: int = 48
@@ -80,11 +81,12 @@ class ModelConfig:
 # Training / schedule hyperparameters
 # -----------------------------------------------------------------------
 
+
 @dataclass
 class TrainConfig:
     # Optimizer
     optimizer: str = "lion"
-    lr: float = 1.3e-4          # overridden per distance in run scripts
+    lr: float = 1.3e-4  # overridden per distance in run scripts
     weight_decay: float = 1e-7
     beta1: float = 0.9
     beta2: float = 0.95
@@ -103,13 +105,13 @@ class TrainConfig:
 
     # Loss weights
     next_stab_pred_weight: float = 0.02
-    next_stab_schedule: str = "alphaqubit"   # cosine anneal after warmup
+    next_stab_schedule: str = "alphaqubit"  # cosine anneal after warmup
     next_stab_weight_min: float = 0.0
     next_stab_warmup_ratio: float = 0.3
 
     # EMA
     use_ema: bool = True
-    ema_alpha: float = 1e-4   # paper: "parameter EMA constant = 0.0001"
+    ema_alpha: float = 1e-4  # paper: "parameter EMA constant = 0.0001"
 
     # Training length
     num_steps: int = 2_000_000
@@ -117,7 +119,7 @@ class TrainConfig:
     # Evaluation
     eval_every: int = 5_000
     log_every: int = 50
-    eval_fit_mode: str = "simple"   # "simple" | "sycamore"
+    eval_fit_mode: str = "simple"  # "simple" | "sycamore"
     min_r2: float = 0.9
     min_intercept: float = -0.02
     eval_cycles: tuple = (3, 5, 7, 9, 11, 13, 15, 25)
@@ -152,6 +154,6 @@ def finetune_config(distance: int = 3) -> TrainConfig:
     cfg = TrainConfig()
     cfg.lr = get_lr(distance)
     cfg.fine_tuning_weight_decay = 0.08  # AlphaQubit Sycamore fine-tuning value
-    cfg.num_steps = 200_000              # fine-tuning is shorter
-    cfg.lr_decay_steps = []              # simpler schedule for fine-tuning
+    cfg.num_steps = 200_000  # fine-tuning is shorter
+    cfg.lr_decay_steps = []  # simpler schedule for fine-tuning
     return cfg

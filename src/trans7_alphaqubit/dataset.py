@@ -15,16 +15,16 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
-from torch.utils.data import Dataset, DataLoader, Sampler
-
+from torch.utils.data import DataLoader, Dataset, Sampler
 
 # -----------------------------------------------------------------------
 # Low-level .01 file reader
 # -----------------------------------------------------------------------
+
 
 def read_01_file(path: str) -> np.ndarray:
     """
@@ -37,24 +37,25 @@ def read_01_file(path: str) -> np.ndarray:
     if raw.size == 0:
         return np.zeros((0, 0), dtype=np.int8)
     # Strip carriage returns (Windows line endings)
-    raw = raw[raw != ord('\r')]
+    raw = raw[raw != ord("\r")]
     # Find column width from first newline
-    newline_pos = np.where(raw == ord('\n'))[0]
+    newline_pos = np.where(raw == ord("\n"))[0]
     if newline_pos.size == 0:
         # Single line, no trailing newline
-        return (raw - ord('0')).astype(np.int8).reshape(1, -1)
+        return (raw - ord("0")).astype(np.int8).reshape(1, -1)
     D = int(newline_pos[0])
     if D == 0:
         return np.zeros((0, 0), dtype=np.int8)
     # Drop newline characters, reshape to (N, D)
-    data = raw[raw != ord('\n')]
+    data = raw[raw != ord("\n")]
     N = data.size // D
-    return (data[:N * D] - ord('0')).astype(np.int8).reshape(N, D)
+    return (data[: N * D] - ord("0")).astype(np.int8).reshape(N, D)
 
 
 # -----------------------------------------------------------------------
 # Measurement reconstruction fallback
 # -----------------------------------------------------------------------
+
 
 def compute_meas_from_events(
     events: np.ndarray,
@@ -83,6 +84,7 @@ def compute_meas_from_events(
 # -----------------------------------------------------------------------
 # SyndromeDataset (works for pretraining and finetuning)
 # -----------------------------------------------------------------------
+
 
 class SyndromeDataset(Dataset):
     """
@@ -129,8 +131,8 @@ class SyndromeDataset(Dataset):
         stab_id_arr = np.asarray(layout["stab_id"], dtype=np.int64)
         cycle_id_arr = np.asarray(layout["cycle_id"], dtype=np.int64)
 
-        self.stab_id = torch.from_numpy(stab_id_arr).long()   # (D,)
-        self.cycle_id = torch.from_numpy(cycle_id_arr).long() # (D,)
+        self.stab_id = torch.from_numpy(stab_id_arr).long()  # (D,)
+        self.cycle_id = torch.from_numpy(cycle_id_arr).long()  # (D,)
         self.num_stab = int(stab_id_arr.max()) + 1
         self.num_cycles = int(cycle_id_arr.max()) + 1
 
@@ -140,12 +142,16 @@ class SyndromeDataset(Dataset):
             meas = np.asarray(measurements, dtype=np.int8)
             if meas.shape != events.shape:
                 # Mismatched shape — fall back to cumulative XOR reconstruction
-                meas = compute_meas_from_events(events, layout["stab_id"], layout["cycle_id"])
+                meas = compute_meas_from_events(
+                    events, layout["stab_id"], layout["cycle_id"]
+                )
         else:
-            meas = compute_meas_from_events(events, layout["stab_id"], layout["cycle_id"])
+            meas = compute_meas_from_events(
+                events, layout["stab_id"], layout["cycle_id"]
+            )
 
-        self.events = torch.from_numpy(events).long()   # (N, D)
-        self.meas = torch.from_numpy(meas).float()      # (N, D)
+        self.events = torch.from_numpy(events).long()  # (N, D)
+        self.meas = torch.from_numpy(meas).float()  # (N, D)
         self.labels = torch.from_numpy(labels).float()  # (N,)
 
         # stab_type: 1=on-basis, 0=off-basis
@@ -166,8 +172,8 @@ class SyndromeDataset(Dataset):
             self._y_coords = None
 
         # Build per-cycle index (T, S_max)
-        self.T, self.S, self.cycle_index, self.cycle_pad_mask = (
-            self._build_cycle_index(self.stab_id, self.cycle_id)
+        self.T, self.S, self.cycle_index, self.cycle_pad_mask = self._build_cycle_index(
+            self.stab_id, self.cycle_id
         )
 
         # Build stab_xy from a full cycle
@@ -207,10 +213,14 @@ class SyndromeDataset(Dataset):
             if n < S:
                 pad = torch.zeros(S - n, dtype=torch.long)
                 padded.append(torch.cat([idx_t, pad]))
-                masks.append(torch.cat([
-                    torch.ones(n, dtype=torch.bool),
-                    torch.zeros(S - n, dtype=torch.bool),
-                ]))
+                masks.append(
+                    torch.cat(
+                        [
+                            torch.ones(n, dtype=torch.bool),
+                            torch.zeros(S - n, dtype=torch.bool),
+                        ]
+                    )
+                )
             else:
                 padded.append(idx_t[:S])
                 masks.append(torch.ones(S, dtype=torch.bool))
@@ -220,16 +230,16 @@ class SyndromeDataset(Dataset):
         return self.num_shots
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
-        syndrome = self.events[idx].long()       # (D,)
-        measurements = self.meas[idx]            # (D,)
-        label = self.labels[idx]                 # scalar
+        syndrome = self.events[idx].long()  # (D,)
+        measurements = self.meas[idx]  # (D,)
+        label = self.labels[idx]  # scalar
 
         # Next-stab targets (T-1, S)
-        ci = self.cycle_index                    # (T, S)
-        synd_ts = syndrome[ci]                   # (T, S)
-        mask_ts = self.cycle_pad_mask            # (T, S)
-        true_stabs = synd_ts[1:].float()         # (T-1, S)
-        token_mask = mask_ts[1:].clone()         # (T-1, S)
+        ci = self.cycle_index  # (T, S)
+        synd_ts = syndrome[ci]  # (T, S)
+        mask_ts = self.cycle_pad_mask  # (T, S)
+        true_stabs = synd_ts[1:].float()  # (T-1, S)
+        token_mask = mask_ts[1:].clone()  # (T-1, S)
 
         batch = {
             "syndrome": syndrome,
@@ -253,6 +263,7 @@ class SyndromeDataset(Dataset):
 # -----------------------------------------------------------------------
 # Data-source resolution helpers
 # -----------------------------------------------------------------------
+
 
 def _resolve_file(folder: Path, *candidates: str) -> Optional[Path]:
     """Return the first candidate filename that exists in folder, or None."""
@@ -303,7 +314,7 @@ def load_folder(
     elif "_bZ_" in folder_name or folder_name.startswith("surface_code_bZ"):
         layout = {**layout, "basis": "Z"}
 
-    events = read_01_file(str(ev_path))          # (N, D)
+    events = read_01_file(str(ev_path))  # (N, D)
     labels = read_01_file(str(lb_path)).ravel()  # (N,)
     assert events.shape[0] == labels.shape[0], (
         f"Shot mismatch: events={events.shape[0]}, labels={labels.shape[0]} in {folder}"
@@ -322,7 +333,9 @@ def load_folder(
             if n_data > 0:
                 measurements = measurements[:, :-n_data]
             if measurements.shape[1] != D_events:
-                measurements = None  # unexpected shape, fall back to cumXOR in SyndromeDataset
+                measurements = (
+                    None  # unexpected shape, fall back to cumXOR in SyndromeDataset
+                )
 
     return events, labels, measurements
 
@@ -344,13 +357,11 @@ def make_train_val_split(
     Uses the first n_train shots for training and the next n_val for validation.
     """
     N = events.shape[0]
-    assert n_train + n_val <= N, (
-        f"n_train={n_train} + n_val={n_val} > N={N}"
-    )
+    assert n_train + n_val <= N, f"n_train={n_train} + n_val={n_val} > N={N}"
     rng = np.random.RandomState(seed)
     idx = rng.permutation(N)
     train_idx = idx[:n_train]
-    val_idx = idx[n_train: n_train + n_val]
+    val_idx = idx[n_train : n_train + n_val]
 
     def _split(arr):
         if arr is None:
@@ -367,6 +378,7 @@ def make_train_val_split(
 # -----------------------------------------------------------------------
 # Multi-folder dataset (aggregate several round folders)
 # -----------------------------------------------------------------------
+
 
 class MultiRoundDataset(Dataset):
     """
@@ -393,7 +405,11 @@ class MultiRoundDataset(Dataset):
         return self._datasets[ds_idx][idx - offset]
 
     def make_grouped_sampler(
-        self, batch_size: int, shuffle: bool = True, drop_last: bool = True, seed: int = 0
+        self,
+        batch_size: int,
+        shuffle: bool = True,
+        drop_last: bool = True,
+        seed: int = 0,
     ) -> "GroupedBatchSampler":
         """Return a sampler that keeps same-D samples together in each batch.
 
@@ -409,11 +425,41 @@ class MultiRoundDataset(Dataset):
             groups.append(list(range(start, start + len(ds))))
             t_counts.append(ds.num_cycles)
         t_min = max(1, min(t_counts))
-        batch_sizes = [
-            max(1, int(round(batch_size * t_min / t))) for t in t_counts
-        ]
+        batch_sizes = [max(1, int(round(batch_size * t_min / t))) for t in t_counts]
         return GroupedBatchSampler(
-            groups, batch_sizes=batch_sizes, shuffle=shuffle, drop_last=drop_last, seed=seed
+            groups,
+            batch_sizes=batch_sizes,
+            shuffle=shuffle,
+            drop_last=drop_last,
+            seed=seed,
+        )
+
+    def make_distributed_grouped_sampler(
+        self,
+        batch_size: int,
+        rank: int,
+        world_size: int,
+        shuffle: bool = True,
+        drop_last: bool = True,
+        seed: int = 0,
+    ) -> "DistributedGroupedBatchSampler":
+        """Return a distributed sampler that partitions same-D groups across ranks."""
+        groups = []
+        t_counts = []
+        for ds_idx, ds in enumerate(self._datasets):
+            start = 0 if ds_idx == 0 else int(self._cumlen[ds_idx - 1])
+            groups.append(list(range(start, start + len(ds))))
+            t_counts.append(ds.num_cycles)
+        t_min = max(1, min(t_counts))
+        batch_sizes = [max(1, int(round(batch_size * t_min / t))) for t in t_counts]
+        return DistributedGroupedBatchSampler(
+            groups,
+            batch_sizes=batch_sizes,
+            rank=rank,
+            world_size=world_size,
+            shuffle=shuffle,
+            drop_last=drop_last,
+            seed=seed,
         )
 
 
@@ -453,7 +499,7 @@ class GroupedBatchSampler(Sampler):
             if self._shuffle:
                 rng.shuffle(indices)
             for start in range(0, len(indices), bs):
-                batch = indices[start: start + bs]
+                batch = indices[start : start + bs]
                 if self._drop_last and len(batch) < bs:
                     continue
                 all_batches.append(batch)
@@ -472,9 +518,74 @@ class GroupedBatchSampler(Sampler):
         return total
 
 
+class DistributedGroupedBatchSampler(Sampler):
+    """
+    Distributed version of GroupedBatchSampler for multi-GPU training.
+
+    Partitions each group's indices across world_size ranks so every rank
+    gets a disjoint subset. Each rank then forms batches from its own subset
+    while keeping same-D grouping intact.
+    """
+
+    def __init__(
+        self,
+        groups: List[List[int]],
+        batch_sizes: List[int],
+        rank: int,
+        world_size: int,
+        shuffle: bool = True,
+        drop_last: bool = True,
+        seed: int = 0,
+    ):
+        assert len(groups) == len(batch_sizes)
+        self._groups = groups
+        self._batch_sizes = batch_sizes
+        self._rank = rank
+        self._world_size = world_size
+        self._shuffle = shuffle
+        self._drop_last = drop_last
+        self._seed = seed
+        self._epoch = 0
+
+    def set_epoch(self, epoch: int) -> None:
+        self._epoch = epoch
+
+    def __iter__(self):
+        rng = np.random.RandomState(self._seed + self._epoch)
+        all_batches = []
+        for group, bs in zip(self._groups, self._batch_sizes):
+            indices = list(group)
+            # All ranks shuffle with the same seed so partitioning is consistent
+            if self._shuffle:
+                rng.shuffle(indices)
+            # Partition: this rank gets indices[rank::world_size]
+            rank_indices = indices[self._rank :: self._world_size]
+            for start in range(0, len(rank_indices), bs):
+                batch = rank_indices[start : start + bs]
+                if self._drop_last and len(batch) < bs:
+                    continue
+                all_batches.append(batch)
+        # Shuffle batch order (with rank-specific seed so ranks differ)
+        if self._shuffle:
+            batch_rng = np.random.RandomState(self._seed + self._epoch + self._rank)
+            batch_rng.shuffle(all_batches)
+        yield from all_batches
+
+    def __len__(self) -> int:
+        total = 0
+        for group, bs in zip(self._groups, self._batch_sizes):
+            n = len(group) // self._world_size
+            if self._drop_last:
+                total += n // bs
+            else:
+                total += (n + bs - 1) // bs
+        return total
+
+
 # -----------------------------------------------------------------------
 # DataLoader factory
 # -----------------------------------------------------------------------
+
 
 def make_loader(
     dataset: Dataset,
@@ -485,18 +596,52 @@ def make_loader(
     pin_memory: bool = True,
     drop_last: bool = True,
     seed: int = 0,
+    rank: int = 0,
+    world_size: int = 1,
 ) -> DataLoader:
+    distributed = world_size > 1
+
     if isinstance(dataset, MultiRoundDataset):
-        # Use grouped sampler so each batch has the same D (same round count).
-        sampler = dataset.make_grouped_sampler(
-            batch_size=batch_size, shuffle=shuffle, drop_last=drop_last, seed=seed
-        )
+        if distributed:
+            sampler = dataset.make_distributed_grouped_sampler(
+                batch_size=batch_size,
+                rank=rank,
+                world_size=world_size,
+                shuffle=shuffle,
+                drop_last=drop_last,
+                seed=seed,
+            )
+        else:
+            sampler = dataset.make_grouped_sampler(
+                batch_size=batch_size, shuffle=shuffle, drop_last=drop_last, seed=seed
+            )
         return DataLoader(
             dataset,
             batch_sampler=sampler,
             num_workers=num_workers,
             pin_memory=pin_memory,
         )
+
+    if distributed:
+        from torch.utils.data.distributed import DistributedSampler
+
+        dist_sampler = DistributedSampler(
+            dataset,
+            num_replicas=world_size,
+            rank=rank,
+            shuffle=shuffle,
+            drop_last=drop_last,
+            seed=seed,
+        )
+        return DataLoader(
+            dataset,
+            batch_size=batch_size,
+            sampler=dist_sampler,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+            drop_last=drop_last,
+        )
+
     return DataLoader(
         dataset,
         batch_size=batch_size,
@@ -511,8 +656,10 @@ def make_loader(
 # Seed utility
 # -----------------------------------------------------------------------
 
+
 def set_seed(seed: int) -> None:
     import random
+
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)

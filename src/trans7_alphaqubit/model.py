@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import math
-from typing import Dict, Optional, Tuple, List
+from typing import Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -69,17 +69,19 @@ class StabilizerEmbedding(nn.Module):
 
     def forward(
         self,
-        meas: torch.Tensor,      # (B, S)
-        event: torch.Tensor,     # (B, S)
+        meas: torch.Tensor,  # (B, S)
+        event: torch.Tensor,  # (B, S)
         stab_ids: torch.Tensor,  # (B, S) or (S,)
     ) -> torch.Tensor:
         B, S = meas.shape
         if stab_ids.dim() == 1:
             stab_ids = stab_ids.unsqueeze(0).expand(B, S)
 
-        h = (self.proj_meas(meas.unsqueeze(-1))
-             + self.proj_event(event.unsqueeze(-1))
-             + self.stab_emb(stab_ids))
+        h = (
+            self.proj_meas(meas.unsqueeze(-1))
+            + self.proj_event(event.unsqueeze(-1))
+            + self.stab_emb(stab_ids)
+        )
         h = self.res1(h)
         h = self.res2(h)
         return h
@@ -108,17 +110,19 @@ class FinalRoundEmbedding(nn.Module):
 
     def forward(
         self,
-        meas: torch.Tensor,      # (B, S)
-        event: torch.Tensor,     # (B, S)
+        meas: torch.Tensor,  # (B, S)
+        event: torch.Tensor,  # (B, S)
         stab_ids: torch.Tensor,  # (B, S) or (S,)
     ) -> torch.Tensor:
         B, S = meas.shape
         if stab_ids.dim() == 1:
             stab_ids = stab_ids.unsqueeze(0).expand(B, S)
 
-        return (self.proj_meas(meas.unsqueeze(-1))
-                + self.proj_event(event.unsqueeze(-1))
-                + self.stab_emb(stab_ids))
+        return (
+            self.proj_meas(meas.unsqueeze(-1))
+            + self.proj_event(event.unsqueeze(-1))
+            + self.stab_emb(stab_ids)
+        )
 
 
 # ============================================================
@@ -129,7 +133,7 @@ class AttentionWithBiasHead(nn.Module):
         super().__init__()
         self.Wq = nn.Linear(d_d, d_attn, bias=True)
         self.Wk = nn.Linear(d_d, d_attn, bias=True)
-        self.Wv = nn.Linear(d_d, d_mid,  bias=True)
+        self.Wv = nn.Linear(d_d, d_mid, bias=True)
         self.d_attn = d_attn
 
     def forward(self, X: torch.Tensor, Bp: torch.Tensor) -> torch.Tensor:
@@ -149,7 +153,9 @@ class MHAttentionWithBias(nn.Module):
         super().__init__()
         self.H = H
         self.Wb = nn.Linear(db, H, bias=False)
-        self.heads = nn.ModuleList([AttentionWithBiasHead(d_d, d_attn, d_mid) for _ in range(H)])
+        self.heads = nn.ModuleList(
+            [AttentionWithBiasHead(d_d, d_attn, d_mid) for _ in range(H)]
+        )
         self.Wo = nn.Linear(H * d_mid, d_d, bias=True)
 
     def forward(self, X: torch.Tensor, bias: torch.Tensor) -> torch.Tensor:
@@ -226,11 +232,19 @@ class ScatteringResidualConvBlock(nn.Module):
             out_ch = channels_list[l]
             dil = 1 if dilation_list is None else dilation_list[l]
             # padding = dilation to maintain spatial size
-            self.convs3.append(nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=dil, dilation=dil))
-            self.proj1.append(nn.Conv2d(out_ch, d_d, kernel_size=1) if out_ch != d_d else nn.Identity())
+            self.convs3.append(
+                nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=dil, dilation=dil)
+            )
+            self.proj1.append(
+                nn.Conv2d(out_ch, d_d, kernel_size=1)
+                if out_ch != d_d
+                else nn.Identity()
+            )
             in_ch = d_d
 
-    def forward(self, X: torch.Tensor, stab_ids: Optional[torch.Tensor] = None) -> torch.Tensor:
+    def forward(
+        self, X: torch.Tensor, stab_ids: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
         """
         X        : (B, S, Dd)  — S active stabilizer tokens this cycle
         stab_ids : (S,)        — stabilizer ID for each token position (0..num_stab-1)
@@ -244,15 +258,14 @@ class ScatteringResidualConvBlock(nn.Module):
         grid[:] = self.P.view(1, 1, 1, Dd)
 
         if stab_ids is not None:
-            # Use precomputed lookup: stab_ids[k] -> (grid_i, grid_j)
             gi = self._grid_i[stab_ids]  # (S,)
             gj = self._grid_j[stab_ids]  # (S,)
-            for k in range(S):
-                grid[:, gi[k], gj[k], :] = X[:, k, :]
         else:
-            for k in range(S):
-                i, j = self.index_to_coord[k]
-                grid[:, i, j, :] = X[:, k, :]
+            gi = self._grid_i[:S]
+            gj = self._grid_j[:S]
+
+        # Scatter: place all S tokens onto the 2D grid in one operation
+        grid[:, gi, gj, :] = X
 
         Y = grid.permute(0, 3, 1, 2).contiguous()  # (B, Dd, H, W)
 
@@ -263,14 +276,9 @@ class ScatteringResidualConvBlock(nn.Module):
             Y = Y + Yn
 
         Y_hw = Y.permute(0, 2, 3, 1).contiguous()
-        Z = X.new_empty((B, S, Dd))
-        if stab_ids is not None:
-            for k in range(S):
-                Z[:, k, :] = Y_hw[:, gi[k], gj[k], :]
-        else:
-            for k in range(S):
-                i, j = self.index_to_coord[k]
-                Z[:, k, :] = Y_hw[:, i, j, :]
+
+        # Gather: read all S token positions from the grid in one operation
+        Z = Y_hw[:, gi, gj, :]
         return Z
 
 
@@ -280,16 +288,25 @@ class ScatteringResidualConvBlock(nn.Module):
 class RNNCore(nn.Module):
     def __init__(
         self,
-        d_d: int, d_attn: int, d_mid: int, db: int, H: int, n_layers: int,
+        d_d: int,
+        d_attn: int,
+        d_mid: int,
+        db: int,
+        H: int,
+        n_layers: int,
         conv_blocks: nn.ModuleList,
         widen: int = 4,
     ):
         super().__init__()
         self.n_layers = n_layers
         self.ln1 = nn.ModuleList([LN(d_d) for _ in range(n_layers)])
-        self.attn = nn.ModuleList([MHAttentionWithBias(d_d, d_attn, d_mid, db, H) for _ in range(n_layers)])
+        self.attn = nn.ModuleList(
+            [MHAttentionWithBias(d_d, d_attn, d_mid, db, H) for _ in range(n_layers)]
+        )
         self.ln2 = nn.ModuleList([LN(d_d) for _ in range(n_layers)])
-        self.ffn = nn.ModuleList([GatedDenseBlock(d_d, w=widen) for _ in range(n_layers)])
+        self.ffn = nn.ModuleList(
+            [GatedDenseBlock(d_d, w=widen) for _ in range(n_layers)]
+        )
         self.conv_blocks = conv_blocks
 
     def forward(
@@ -382,9 +399,13 @@ class ReadoutResNet(nn.Module):
         self.grid_w = int(gj.max().item()) + 1 if num_stab > 0 else distance + 1
 
         self.P = nn.Parameter(torch.zeros(d_model))
-        self.spatial_conv = nn.Conv2d(d_model, d_model, kernel_size=2, stride=2, padding=0)
+        self.spatial_conv = nn.Conv2d(
+            d_model, d_model, kernel_size=2, stride=2, padding=0
+        )
         self.dim_reduce = nn.Conv2d(d_model, readout_dim, kernel_size=1)
-        self.res_blocks = nn.ModuleList([ReadoutResidualBlock(readout_dim) for _ in range(num_layers)])
+        self.res_blocks = nn.ModuleList(
+            [ReadoutResidualBlock(readout_dim) for _ in range(num_layers)]
+        )
         self.out_linear = nn.Linear(readout_dim, 1)
 
     def forward(
@@ -411,15 +432,16 @@ class ReadoutResNet(nn.Module):
         if stab_ids is not None:
             gi = self._grid_i[stab_ids]
             gj = self._grid_j[stab_ids]
-            for k in range(S):
-                grid[:, gi[k], gj[k], :] = X[:, k, :]
         else:
-            for (i, j), idx in self.coord_to_index.items():
-                grid[:, i, j, :] = X[:, idx, :]
+            gi = self._grid_i[:S]
+            gj = self._grid_j[:S]
+
+        # Scatter: place all S tokens onto the 2D grid in one operation
+        grid[:, gi, gj, :] = X
 
         grid = grid.permute(0, 3, 1, 2).contiguous()  # (B, D, H, W)
         x = F.gelu(self.spatial_conv(grid))
-        x = F.gelu(self.dim_reduce(x))               # (B, readout_dim, H', W')
+        x = F.gelu(self.dim_reduce(x))  # (B, readout_dim, H', W')
 
         # Directional pool perpendicular to logical observable.
         # basis_idx=0 → X basis → pool over W columns (H' positions remain)
@@ -438,8 +460,9 @@ class ReadoutResNet(nn.Module):
             x_x = x_pool_x[basis_b == 0]
             x_z = x_pool_z[basis_b == 1]
             # Re-assemble in original order
-            out = torch.empty(B, x_pool_x.shape[1], x_pool_x.shape[2],
-                              dtype=x.dtype, device=x.device)
+            out = torch.empty(
+                B, x_pool_x.shape[1], x_pool_x.shape[2], dtype=x.dtype, device=x.device
+            )
             if (basis_b == 0).any():
                 out[basis_b == 0] = x_x
             if (basis_b == 1).any():
@@ -450,8 +473,8 @@ class ReadoutResNet(nn.Module):
         # Fig 1F: add cycle embedding ("Cycle k n → Embed") before the ResNet.
         if cycle_n is not None:
             cn = torch.tensor(cycle_n, dtype=torch.long, device=x.device)
-            cyc_e = self.cycle_emb(cn)                    # (readout_dim,)
-            x = x + cyc_e.view(1, self.readout_dim, 1)   # broadcast over B and K
+            cyc_e = self.cycle_emb(cn)  # (readout_dim,)
+            x = x + cyc_e.view(1, self.readout_dim, 1)  # broadcast over B and K
 
         x = x.permute(0, 2, 1).contiguous().reshape(B * K, self.readout_dim)
 
@@ -516,7 +539,9 @@ class AlphaQubitModel(nn.Module):
         self.final_proj = FinalRoundEmbedding(num_stab=num_stab, d_model=d_model)
         self.offbasis_final_emb = nn.Parameter(torch.zeros(d_model))
 
-        self.core = RNNCore(d_model, d_attn, d_mid, db, H, n_layers, conv_blocks, widen=widen)
+        self.core = RNNCore(
+            d_model, d_attn, d_mid, db, H, n_layers, conv_blocks, widen=widen
+        )
 
         self.readout_ln = nn.LayerNorm(d_model)
         self.readout = ReadoutResNet(
@@ -568,10 +593,16 @@ class AlphaQubitModel(nn.Module):
             if n < S:
                 pad = torch.zeros(S - n, dtype=torch.long, device=cycle_id.device)
                 padded.append(torch.cat([idx_t, pad]))
-                masks.append(torch.cat([
-                    torch.ones(n, dtype=torch.bool, device=cycle_id.device),
-                    torch.zeros(S - n, dtype=torch.bool, device=cycle_id.device),
-                ]))
+                masks.append(
+                    torch.cat(
+                        [
+                            torch.ones(n, dtype=torch.bool, device=cycle_id.device),
+                            torch.zeros(
+                                S - n, dtype=torch.bool, device=cycle_id.device
+                            ),
+                        ]
+                    )
+                )
             else:
                 padded.append(idx_t[:S])
                 masks.append(torch.ones(S, dtype=torch.bool, device=cycle_id.device))
@@ -584,8 +615,13 @@ class AlphaQubitModel(nn.Module):
         L = int(cycle_id.numel())
         T_now = int(cycle_id.max().item()) + 1
         need_rebuild = (
-            self._cycle_index is None or self._L != L or self._T != T_now
-            or (self._cycle_index is not None and self._cycle_index.device != syndrome.device)
+            self._cycle_index is None
+            or self._L != L
+            or self._T != T_now
+            or (
+                self._cycle_index is not None
+                and self._cycle_index.device != syndrome.device
+            )
         )
         if need_rebuild:
             T, S, idx, pmask = self._build_cycle_index(stab_id, cycle_id)
@@ -636,8 +672,14 @@ class AlphaQubitModel(nn.Module):
         event_ts = torch.gather(syndrome.float(), 1, idx_flat_expand).view(B, T, S)
 
         measurements = batch.get("measurements")
-        if measurements is not None and measurements.dim() == 2 and measurements.shape[1] == L:
-            meas_ts = torch.gather(measurements.float(), 1, idx_flat_expand).view(B, T, S)
+        if (
+            measurements is not None
+            and measurements.dim() == 2
+            and measurements.shape[1] == L
+        ):
+            meas_ts = torch.gather(measurements.float(), 1, idx_flat_expand).view(
+                B, T, S
+            )
         elif measurements is not None:
             meas_ts = measurements.float()
         else:
@@ -663,7 +705,8 @@ class AlphaQubitModel(nn.Module):
             stab_type = stab_type.to(syndrome.device)
 
             final_emb = self.final_proj(
-                meas_ts[:, -1], event_ts[:, -1],
+                meas_ts[:, -1],
+                event_ts[:, -1],
                 stab_ts[:, -1],
             )  # (B, S, D)
 
@@ -700,7 +743,9 @@ class AlphaQubitModel(nn.Module):
                 _sids = stab_ids_t
                 X = grad_checkpoint(
                     lambda _X, _tok, _B: self.core(_X, _tok, _B, stab_ids=_sids),
-                    X, token_t, Bbias,
+                    X,
+                    token_t,
+                    Bbias,
                     use_reentrant=False,
                 )
             else:
