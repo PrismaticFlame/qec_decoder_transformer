@@ -3,7 +3,8 @@ dataset_streaming.py - Rolling window HDF5 dataset for pretraining (trans7)
 
 ChunkedHDF5Dataset reads a monolithic HDF5 file built by data/data_random_sample.py
 and yields one MultiRoundDataset chunk at a time. Each chunk contains chunk_size
-samples drawn from the globally shuffled sample_index stored in the HDF5 file.
+samples drawn from the pre-split sample_index_train or sample_index_val stored in
+the HDF5 file.
 
 Within each chunk, samples are grouped by (basis, distance, rounds) so that
 GroupedBatchSampler can produce D-homogeneous batches, exactly as the existing
@@ -13,9 +14,9 @@ Usage:
     from dataset_streaming import ChunkedHDF5Dataset, get_reference_layout
     from dataset import make_loader
 
-    ds = ChunkedHDF5Dataset("data/trans7_data/pretrain.h5", chunk_size=50_000, distance=3)
-    train_chunk, val_chunk = ds.load_chunk_split(0)
-    for chunk in ds:
+    train_ds = ChunkedHDF5Dataset("data/trans7_data/pretrain.h5", split="train", distance=3)
+    val_ds   = ChunkedHDF5Dataset("data/trans7_data/pretrain.h5", split="val",   distance=3)
+    for chunk in train_ds:
         loader = make_loader(chunk, batch_size=256, shuffle=True)
         for batch in loader:
             ...
@@ -28,25 +29,24 @@ import math
 import queue
 import threading
 from pathlib import Path
-from typing import Iterator, List, Optional, Tuple
+from typing import Iterator, List, Optional
 
 import numpy as np
-
-from dataset import SyndromeDataset, MultiRoundDataset
-
+from dataset import MultiRoundDataset, SyndromeDataset
 
 # -----------------------------------------------------------------------
 # Layout helpers
 # -----------------------------------------------------------------------
 
+
 def _reconstruct_layout(grp) -> dict:
     """Reconstruct a layout dict from an HDF5 group's attributes."""
     layout = {
-        "distance":         int(grp.attrs["distance"]),
-        "basis":            str(grp.attrs["basis"]),
-        "num_stab":         int(grp.attrs["num_stab"]),
-        "num_cycles":       int(grp.attrs["num_cycles"]),
-        "num_detectors":    int(grp.attrs["num_detectors"]),
+        "distance": int(grp.attrs["distance"]),
+        "basis": str(grp.attrs["basis"]),
+        "num_stab": int(grp.attrs["num_stab"]),
+        "num_cycles": int(grp.attrs["num_cycles"]),
+        "num_detectors": int(grp.attrs["num_detectors"]),
         "tokens_per_cycle": int(grp.attrs["tokens_per_cycle"]),
     }
     for key in ("stab_id", "cycle_id", "x", "y", "stab_type"):
@@ -70,8 +70,7 @@ def get_reference_layout(h5_path: str | Path, distance: int) -> dict:
     with h5py.File(Path(h5_path), "r") as hf:
         raw_keys = hf["group_keys"][:]
         group_keys = [
-            k.decode("utf-8") if isinstance(k, bytes) else str(k)
-            for k in raw_keys
+            k.decode("utf-8") if isinstance(k, bytes) else str(k) for k in raw_keys
         ]
         max_rounds = -1
         ref_key = None
@@ -84,15 +83,14 @@ def get_reference_layout(h5_path: str | Path, distance: int) -> dict:
                     ref_key = key
 
         if ref_key is None:
-            raise ValueError(
-                f"No groups with distance={distance} found in {h5_path}"
-            )
+            raise ValueError(f"No groups with distance={distance} found in {h5_path}")
         return _reconstruct_layout(hf[ref_key])
 
 
 # -----------------------------------------------------------------------
 # ChunkedHDF5Dataset
 # -----------------------------------------------------------------------
+
 
 class ChunkedHDF5Dataset:
     """
@@ -102,6 +100,8 @@ class ChunkedHDF5Dataset:
     ----------
     h5_path : str or Path
         Path to the HDF5 file produced by data/data_random_sample.py.
+    split : str
+        Which split to use: ``"train"`` or ``"val"``.
     chunk_size : int
         Number of samples to load into RAM per chunk (rolling window size).
     distance : int or None
@@ -117,6 +117,7 @@ class ChunkedHDF5Dataset:
     def __init__(
         self,
         h5_path: str | Path,
+        split: str = "train",
         chunk_size: int = 50_000,
         distance: Optional[int] = None,
         seed: int = 42,
@@ -127,20 +128,25 @@ class ChunkedHDF5Dataset:
         except ImportError:
             raise ImportError("h5py is required. Install with: pip install h5py")
 
+        if split not in ("train", "val"):
+            raise ValueError(f"split must be 'train' or 'val', got {split!r}")
+
         self.h5_path = Path(h5_path)
         if not self.h5_path.exists():
             raise FileNotFoundError(f"HDF5 file not found: {self.h5_path}")
 
         self.chunk_size = chunk_size
         self.distance = distance
+        self.split = split
+
+        index_key = f"sample_index_{split}"
 
         # Load the lightweight index arrays into RAM — tiny regardless of dataset size.
         with h5py.File(self.h5_path, "r") as hf:
-            sample_index = hf["sample_index"][:]     # (M, 2) int32
+            sample_index = hf[index_key][:]  # (M, 2) int32
             raw_keys = hf["group_keys"][:]
             self._group_keys = [
-                k.decode("utf-8") if isinstance(k, bytes) else str(k)
-                for k in raw_keys
+                k.decode("utf-8") if isinstance(k, bytes) else str(k) for k in raw_keys
             ]
 
             # Build per-group distance lookup so we can filter without re-opening.
@@ -151,8 +157,7 @@ class ChunkedHDF5Dataset:
         # Filter sample_index to the requested distance if specified.
         if distance is not None:
             valid_groups = {
-                g_idx for g_idx, d in self._group_distances.items()
-                if d == distance
+                g_idx for g_idx, d in self._group_distances.items() if d == distance
             }
             if not valid_groups:
                 raise ValueError(
@@ -213,62 +218,6 @@ class ChunkedHDF5Dataset:
     # Chunk loading
     # ------------------------------------------------------------------
 
-    def load_chunk_split(
-        self,
-        offset: int,
-        val_fraction: float = 0.2,
-        seed: int = 42,
-    ) -> Tuple[MultiRoundDataset, MultiRoundDataset]:
-        """
-        Load chunk_size samples and split each group 80/20 into train and val.
-
-        Returns (train_MultiRoundDataset, val_MultiRoundDataset).
-        The val set uses a fixed random split so it is reproducible across chunks.
-        """
-        import h5py
-
-        chunk = self._sample_index[offset: offset + self.chunk_size]
-        if len(chunk) == 0:
-            raise ValueError(f"No samples at offset {offset}")
-
-        groups: dict[int, list[int]] = {}
-        for g_idx, l_idx in chunk:
-            g_idx, l_idx = int(g_idx), int(l_idx)
-            groups.setdefault(g_idx, []).append(l_idx)
-
-        train_ds_list: List[SyndromeDataset] = []
-        val_ds_list: List[SyndromeDataset] = []
-        rng = np.random.RandomState(seed)
-
-        with h5py.File(self.h5_path, "r") as hf:
-            for g_idx, local_indices in groups.items():
-                events, labels, measurements, layout = self._read_group(
-                    hf, g_idx, local_indices
-                )
-                N = len(events)
-                n_val = max(1, int(N * val_fraction))
-                n_train = N - n_val
-
-                perm = rng.permutation(N)
-                tr_idx = perm[:n_train]
-                va_idx = perm[n_train:]
-
-                def _sub(arr, idx):
-                    return arr[idx] if arr is not None else None
-
-                train_ds_list.append(SyndromeDataset(
-                    events[tr_idx], labels[tr_idx], layout, _sub(measurements, tr_idx)
-                ))
-                val_ds_list.append(SyndromeDataset(
-                    events[va_idx], labels[va_idx], layout, _sub(measurements, va_idx)
-                ))
-
-        return MultiRoundDataset(train_ds_list), MultiRoundDataset(val_ds_list)
-
-    # ------------------------------------------------------------------
-    # Iteration
-    # ------------------------------------------------------------------
-
     def __iter__(self) -> Iterator[MultiRoundDataset]:
         for offset in range(0, self.total_samples, self.chunk_size):
             yield self.load_chunk(offset)
@@ -276,7 +225,9 @@ class ChunkedHDF5Dataset:
     def __len__(self) -> int:
         return self.num_chunks
 
-    def load_chunk(self, offset: int, chunk_size: Optional[int] = None) -> MultiRoundDataset:
+    def load_chunk(
+        self, offset: int, chunk_size: Optional[int] = None
+    ) -> MultiRoundDataset:
         """
         Load samples starting at `offset`. Uses self.chunk_size unless chunk_size is given.
 
@@ -287,7 +238,7 @@ class ChunkedHDF5Dataset:
         import h5py
 
         size = chunk_size if chunk_size is not None else self.chunk_size
-        chunk = self._sample_index[offset: offset + size]
+        chunk = self._sample_index[offset : offset + size]
         if len(chunk) == 0:
             raise ValueError(f"No samples at offset {offset}")
 

@@ -349,14 +349,22 @@ def pretrain_single(
 
         streaming_ds = ChunkedHDF5Dataset(
             monolithic_file,
+            split="train",
             chunk_size=initial_chunk_size,
             distance=distance,
             seed=train_cfg.seed,
         )
-        layout = get_reference_layout(monolithic_file, distance)
-        train_dataset, val_dataset = streaming_ds.load_chunk_split(
-            0, val_fraction=0.2, seed=train_cfg.seed
+        val_streaming_ds = ChunkedHDF5Dataset(
+            monolithic_file,
+            split="val",
+            chunk_size=initial_chunk_size,
+            distance=distance,
+            seed=train_cfg.seed,
+            shuffle=False,
         )
+        layout = get_reference_layout(monolithic_file, distance)
+        train_dataset = streaming_ds.load_chunk(0)
+        val_dataset = val_streaming_ds.load_chunk(0)
 
         # --- Dynamic-size prefetch state ---
         # _ds_holder[0] is the active ChunkedHDF5Dataset (replaced on epoch wrap).
@@ -402,6 +410,7 @@ def pretrain_single(
                 _seed_ctr[0] += 1
                 cur_ds = ChunkedHDF5Dataset(
                     monolithic_file,
+                    split="train",
                     chunk_size=dynamic_size,
                     distance=distance,
                     seed=_seed_ctr[0],

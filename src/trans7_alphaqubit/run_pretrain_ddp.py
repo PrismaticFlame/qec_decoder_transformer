@@ -91,16 +91,22 @@ def pretrain_single_ddp(
 
         streaming_ds = ChunkedHDF5Dataset(
             monolithic_file,
+            split="train",
             chunk_size=initial_chunk_size,
             distance=distance,
             seed=train_cfg.seed,
         )
-        layout = get_reference_layout(monolithic_file, distance)
-        train_dataset, val_dataset = streaming_ds.load_chunk_split(
-            0,
-            val_fraction=0.2,
+        val_streaming_ds = ChunkedHDF5Dataset(
+            monolithic_file,
+            split="val",
+            chunk_size=initial_chunk_size,
+            distance=distance,
             seed=train_cfg.seed,
+            shuffle=False,
         )
+        layout = get_reference_layout(monolithic_file, distance)
+        train_dataset = streaming_ds.load_chunk(0)
+        val_dataset = val_streaming_ds.load_chunk(0)
         # Streaming chunk prefetch not implemented for DDP yet — use simple reload
         get_next_chunk = None
     else:
