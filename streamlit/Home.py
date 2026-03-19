@@ -2,6 +2,9 @@ import streamlit as st
 
 # TODO decide what goes in the homepage
 
+# Set all page configurations to wide
+st.set_page_config(layout="wide")
+
 st.title("Quantum Error Correction: A Neural Network Decoder for Surface Codes")
 
 # Maybe change this section's contents

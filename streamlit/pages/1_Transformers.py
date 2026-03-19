@@ -1,7 +1,7 @@
 import streamlit as st
 from components.graphs import createDataPlotly
 from components.Data import Data
-from components.comparisons import getOverview, getStructure
+from components.comparisons import getOverview, getStructure, getSummary
 
 # Data file initialization
 x_data = Data('x_d3_r6_eval.csv', "X", 3, 6, 500)
@@ -60,9 +60,9 @@ v3Btn.button("v3", width='stretch', on_click = btnClickV3, disabled= getVersion(
 v5Btn.button("v5", width='stretch', on_click = btnClickV5, disabled= getVersion() == "v5")
 v6Btn.button("v6", width='stretch', on_click = btnClickV6, disabled= getVersion() == "v6")
 
-if (st.session_state['version'] != 'All'):
-    st.header(f"{st.session_state['version']}: Short Summary")
-    st.write("Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.")
+# if (st.session_state['version'] != 'All'):
+st.header(f"{st.session_state['version']}: Short Summary")
+st.write(getSummary(st.session_state['version']))
 
 basis_container = st.container()
 
@@ -81,6 +81,7 @@ with st.expander("Show raw metrics"):
 createDataPlotly(data, graph, dataContainer, title=f"{data.basis} basis, Distance {data.d}", subtitle=f"{data.shots} shots, Rounds {data.r}")
 
 st.header("Model details")
+st.info("Double click a cell to expand its contents")
 overviewTab, structureTab = st.tabs(["Overview", "Data Input and Structure"])
 
 #Overview

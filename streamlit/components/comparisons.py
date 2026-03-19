@@ -1,5 +1,12 @@
 import pandas as pd
 
+# Short summary
+summaryAll = "Transformer versions 1, 2, and 4 are not included in this data. V1 was the first attempt at training, and produced no output. V2 never became a functional transformer model. V4 was functional, but was too similar to v3 to warrant its own results."
+summaryV3 = "This is the summary for V3"
+summaryV5 = "This is the summary for V5"
+summaryV6 = "This is the summary for V6"
+summary = {"All": summaryAll, "v3": summaryV3, "v5": summaryV5, "v6": summaryV6}
+
 # Overview
 overviewProperties = [
     "Framework", 
@@ -246,6 +253,10 @@ def getV6(desDf: pd.DataFrame):
     dropColumns = ["v3", "v5"]
     returnDf = returnDf.drop(dropColumns, axis=1)
     return returnDf
+
+# Short summary
+def getSummary(version = "All"):
+    return summary[version]
 
 # Overview
 def getOverview(version = "All"):
