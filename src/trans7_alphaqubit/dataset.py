@@ -592,7 +592,7 @@ def make_loader(
     batch_size: int,
     *,
     shuffle: bool,
-    num_workers: int = 0,
+    num_workers: int = 4,
     pin_memory: bool = True,
     drop_last: bool = True,
     seed: int = 0,

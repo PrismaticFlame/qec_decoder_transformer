@@ -181,6 +181,7 @@ def pretrain_single_ddp(
     model = build_model(layout, model_cfg, "x", use_full_bias=use_full_bias)
     device = torch.device(train_cfg.device)
     model.to(device)
+    
     model = torch.compile(model, mode="reduce-overhead")
     model = DDP(model, device_ids=[local_rank], find_unused_parameters=False)
 

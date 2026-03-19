@@ -35,7 +35,14 @@ import numpy as np
 
 # Add src/trans7_alphaqubit to path for layout and dataset imports
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "src" / "trans7_alphaqubit"))
+_candidates = [
+    REPO_ROOT / "src" / "trans7_alphaqubit",  # local: repo root is QEC_Decoder_Transformer/
+    REPO_ROOT / "trans7_alphaqubit",           # cluster: repo root is already src/
+]
+_module_dir = next((p for p in _candidates if (p / "dataset.py").exists()), None)
+if _module_dir is None:
+    raise RuntimeError(f"Could not find trans7_alphaqubit module. Tried: {_candidates}")
+sys.path.insert(0, str(_module_dir))
 
 from dataset import load_folder  # noqa: E402
 from layout import get_or_build_layout  # noqa: E402

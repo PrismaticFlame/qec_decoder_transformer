@@ -457,17 +457,8 @@ class ReadoutResNet(nn.Module):
             x_pool_x = x.mean(dim=3)  # (B, readout_dim, H')
             x_pool_z = x.mean(dim=2)  # (B, readout_dim, W')
             basis_b = basis_idx.view(B).to(x.device)
-            x_x = x_pool_x[basis_b == 0]
-            x_z = x_pool_z[basis_b == 1]
-            # Re-assemble in original order
-            out = torch.empty(
-                B, x_pool_x.shape[1], x_pool_x.shape[2], dtype=x.dtype, device=x.device
-            )
-            if (basis_b == 0).any():
-                out[basis_b == 0] = x_x
-            if (basis_b == 1).any():
-                out[basis_b == 1] = x_z
-            x = out
+            mask = (basis_b == 0).view(B, 1, 1)  # True → X-basis, False → Z-basis
+            x = torch.where(mask, x_pool_x, x_pool_z)
 
         K = x.shape[2]
         # Fig 1F: add cycle embedding ("Cycle k n → Embed") before the ResNet.
