@@ -13,7 +13,9 @@ and runs validation.  All ranks participate in forward/backward.
 import argparse
 import json
 import os
+import queue
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -107,8 +109,62 @@ def pretrain_single_ddp(
         layout = get_reference_layout(monolithic_file, distance)
         train_dataset = streaming_ds.load_chunk(0)
         val_dataset = val_streaming_ds.load_chunk(0)
-        # Streaming chunk prefetch not implemented for DDP yet — use simple reload
-        get_next_chunk = None
+
+        # --- Dynamic-size prefetch state (mirrors run_pretrain.py) ---
+        # All ranks use the same seed/offsets so they load identical chunks.
+        BATCHES_PER_CHUNK = 200
+        _ds_holder = [streaming_ds]
+        _next_off = [initial_chunk_size]
+        _seed_ctr = [train_cfg.seed]
+        _prefetch_buf: queue.Queue = queue.Queue(maxsize=3)
+
+        def _load_and_enqueue(ds, offset, size):
+            try:
+                chunk = ds.load_chunk(offset, chunk_size=size)
+                _prefetch_buf.put(chunk)
+            except Exception as exc:
+                if is_main:
+                    print(f"[prefetch] error at offset={offset}: {exc}")
+                _prefetch_buf.put(None)
+
+        # Kick off prefetch for chunk 1 immediately.
+        threading.Thread(
+            target=_load_and_enqueue,
+            args=(streaming_ds, initial_chunk_size, initial_chunk_size),
+            daemon=True,
+        ).start()
+        _next_off[0] = 2 * initial_chunk_size
+
+        def get_next_chunk(cur_bs: int):
+            """Return the next train chunk, adapting chunk size to cur_bs."""
+            dynamic_size = BATCHES_PER_CHUNK * cur_bs
+
+            chunk = _prefetch_buf.get(timeout=600)
+
+            cur_ds = _ds_holder[0]
+            next_off = _next_off[0]
+
+            if next_off >= cur_ds.total_samples:
+                _seed_ctr[0] += 1
+                cur_ds = ChunkedHDF5Dataset(
+                    monolithic_file,
+                    split="train",
+                    chunk_size=dynamic_size,
+                    distance=distance,
+                    seed=_seed_ctr[0],
+                )
+                _ds_holder[0] = cur_ds
+                next_off = 0
+
+            _next_off[0] = next_off + dynamic_size
+
+            threading.Thread(
+                target=_load_and_enqueue,
+                args=(cur_ds, next_off, dynamic_size),
+                daemon=True,
+            ).start()
+
+            return chunk
     else:
         train_dataset, val_dataset, layout = load_pretraining_datasets(
             data_root,
