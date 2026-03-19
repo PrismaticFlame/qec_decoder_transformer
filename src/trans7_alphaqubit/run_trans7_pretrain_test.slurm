@@ -1,71 +1,79 @@
 #!/bin/bash
 ######################## SLURM OPTIONS #########################################
-#SBATCH --job-name=trans7_ddp
+#SBATCH --job-name=trans7_test
 #SBATCH --account=quantum_training
-#SBATCH --time=48:00:00
+#SBATCH --time=00:30:00
 #SBATCH --partition=a100_normal_q
 #SBATCH --gres=gpu:2
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=128G
-#SBATCH --output=logs/trans7_ddp_%j.out
-#SBATCH --error=logs/trans7_ddp_%j.err
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=16G
+#SBATCH --output=logs/trans7_test_%j.out
+#SBATCH --error=logs/trans7_test_%j.err
 ###############################################################################
-# Trans7 AlphaQubit Pretraining — Multi-GPU (DDP, 2 GPUs)
+# Trans7 AlphaQubit Pretraining — Smoke Test (1 GPU)
 #
-# Uses torchrun to launch DistributedDataParallel across 2 A100 GPUs.
-# Each GPU processes a separate data shard; gradients are synchronized
-# via NCCL all-reduce.  Near-linear speedup: 2 GPUs ≈ 2x faster.
+# Reduced job for validating script structure and env setup before
+# submitting the full training run. Not intended for actual training.
 #
 # Override at submission time, e.g.:
-#   sbatch --export=DISTANCES="3",NUM_STEPS=500000,NGPUS=2 run_trans7_pretrain_ddp.slurm
+#   sbatch --export=DISTANCES="3",NUM_STEPS=100,NGPUS=1 run_trans7_pretrain_test.slurm
 ###############################################################################
 
 export PYTHONUNBUFFERED=1
+export PYTHONNOUSERSITE=1
 set -euo pipefail
 
 # ---- Configurable parameters (override via --export or edit here) -----------
 NGPUS="${NGPUS:-2}"                    # GPUs per node (must match --gres above)
-DISTANCES="${DISTANCES:-3 5}"          # space-separated list
-NUM_STEPS="${NUM_STEPS:-2000000}"
+DISTANCES="${DISTANCES:-3}"            # space-separated list
+NUM_STEPS="${NUM_STEPS:-100}"          # reduced for smoke test
 BATCH_SIZE="${BATCH_SIZE:-256}"        # per-GPU batch size
-EVAL_EVERY="${EVAL_EVERY:-5000}"
+EVAL_EVERY="${EVAL_EVERY:-50}"         # reduced for smoke test
 D_MODEL="${D_MODEL:-256}"
-ROUNDS="${ROUNDS:-1 3 5 7 9 11 13 15 17 19 21 23 25}"
+ROUNDS="${ROUNDS:-1 3 5}"             # reduced for smoke test
 USE_WANDB="${USE_WANDB:-}"             # set to "--use_wandb" to enable
 # ----------------------------------------------------------------------------
 
 echo "===== Job started on $(hostname) at $(date) ====="
 echo "SLURM_JOB_ID=$SLURM_JOB_ID  NGPUS=$NGPUS"
+echo "Working dir: $(pwd)"
 echo "DISTANCES=$DISTANCES  NUM_STEPS=$NUM_STEPS  BATCH_SIZE=$BATCH_SIZE"
 
 mkdir -p logs
 
 ################################################################################
-# 0) Module / conda setup
+# 0) Install Miniforge into $SCRDIR, Create & Activate env inside $SCRDIR
 ################################################################################
-if ! command -v module &>/dev/null; then
-  if [ -f /etc/profile.d/modules.sh ]; then
-    source /etc/profile.d/modules.sh
-  fi
+
+if [ -z "${SCRDIR:-}" ]; then
+  export SCRDIR="/scratch/${USER}"
+fi
+mkdir -p "$SCRDIR"
+
+MINIFORGE_DIR="$SCRDIR/miniforge3"
+ENV_PREFIX="$SCRDIR/conda_envs/alphaqubit_t7_env"
+
+if [ ! -d "$MINIFORGE_DIR" ]; then
+  curl -L -o "$SCRDIR/Miniforge3.sh" \
+    https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh
+  bash "$SCRDIR/Miniforge3.sh" -b -p "$MINIFORGE_DIR"
 fi
 
-module purge || true
-module --ignore_cache load Miniconda3/24.7.1-0
+# initializing conda for non-interactive shell
+source "$MINIFORGE_DIR/etc/profile.d/conda.sh"
 
-CONDA_BASE="$(conda info --base)"
-source "${CONDA_BASE}/etc/profile.d/conda.sh"
+echo "Conda: $(which conda)"
+conda --version
 
-ENV_PREFIX="${SCRATCH:-$HOME}/conda_envs/trans7_env"
-mkdir -p "$(dirname "$ENV_PREFIX")"
-
+echo "=== Creating conda env at $ENV_PREFIX ===="
 if [ ! -d "$ENV_PREFIX" ]; then
-  echo "Creating conda env at $ENV_PREFIX ..."
+  echo "ENV_PREFIX not present"
   conda create -y -p "$ENV_PREFIX" python=3.10
 fi
 
-conda activate "$ENV_PREFIX"
+conda activate "$ENV_PREFIX" || { echo "conda activate failed"; exit 1; }
 
 echo "Python: $(which python)"
 python -V
@@ -73,14 +81,16 @@ python -V
 ################################################################################
 # 1) Install dependencies (skipped if already installed)
 ################################################################################
-python -m pip install --upgrade pip wheel setuptools --quiet
 
-python -m pip install torch \
-  --index-url https://download.pytorch.org/whl/cu126 \
-  --quiet
+cd /home/${USER}/src/trans7_alphaqubit
 
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-python -m pip install -r "${REPO_ROOT}/requirements_transformer.txt" --quiet
+if [ ! -f "$ENV_PREFIX/.deps_installed" ]; then
+  python -m pip install --upgrade pip wheel setuptools
+  python -m pip install torch torchvision \
+    --index-url https://download.pytorch.org/whl/cu126
+  python -m pip install -r requirements_transformer.txt
+  touch "$ENV_PREFIX/.deps_installed"
+fi
 
 python - <<'PY'
 import torch
@@ -91,17 +101,14 @@ n = torch.cuda.device_count()
 print(f"GPUs visible: {n}")
 for i in range(n):
     print(f"  gpu {i}: {torch.cuda.get_device_name(i)}  "
-          f"{torch.cuda.get_device_properties(i).total_mem // 1024**3} GB")
+          f"{torch.cuda.get_device_properties(i).total_memory // 1024**3} GB")
 PY
 
 ################################################################################
-# 2) Run DDP pretraining
+# 2) Run smoke test
 ################################################################################
-SCRIPT_DIR="${REPO_ROOT}/src/trans7_alphaqubit"
 
-echo "===== Starting DDP pretraining ($NGPUS GPUs) at $(date) ====="
-
-cd "${SCRIPT_DIR}"
+echo "===== Starting smoke test ($NGPUS GPU) at $(date) ====="
 
 torchrun \
   --standalone \
@@ -114,9 +121,9 @@ torchrun \
   --batch_size "${BATCH_SIZE}" \
   --eval_every "${EVAL_EVERY}" \
   --d_model "${D_MODEL}" \
-  --data_dir "../../data/trans7_data" \
-  --checkpoint_dir "checkpoints/pretrain" \
+  --data_dir "/home/${USER}/src/data/trans7_data" \
+  --checkpoint_dir "/home/${USER}/trans7_alphaqubit/checkpoints/test" \
   ${USE_WANDB}
 
-echo "===== DDP pretraining finished at $(date) ====="
-echo "Checkpoints written to: ${SCRIPT_DIR}/checkpoints/pretrain/"
+echo "===== Smoke test finished at $(date) ====="
+echo "Checkpoints written to: /home/${USER}/trans7_alphaqubit/checkpoints/test"
