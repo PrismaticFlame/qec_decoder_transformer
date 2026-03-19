@@ -105,7 +105,17 @@ for i in range(n):
 PY
 
 ################################################################################
-# 2) Run smoke test
+# 2) Copy data to node-local storage
+################################################################################
+
+LOCAL_DATA_DIR="/tmp/alphaqubit_${SLURM_JOB_ID}"
+mkdir -p "$LOCAL_DATA_DIR"
+echo "===== Copying pretrain.h5 to $LOCAL_DATA_DIR at $(date) ====="
+cp "/home/${USER}/src/data/trans7_data/pretrain.h5" "$LOCAL_DATA_DIR/pretrain.h5"
+echo "===== Copy complete at $(date) ====="
+
+################################################################################
+# 3) Run smoke test
 ################################################################################
 
 echo "===== Starting smoke test ($NGPUS GPU) at $(date) ====="
@@ -121,7 +131,7 @@ torchrun \
   --batch_size "${BATCH_SIZE}" \
   --eval_every "${EVAL_EVERY}" \
   --d_model "${D_MODEL}" \
-  --data_dir "/home/${USER}/src/data/trans7_data" \
+  --data_dir "$LOCAL_DATA_DIR" \
   --checkpoint_dir "/home/${USER}/trans7_alphaqubit/checkpoints/test" \
   ${USE_WANDB}
 

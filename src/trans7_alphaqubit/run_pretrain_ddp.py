@@ -177,13 +177,15 @@ def pretrain_single_ddp(
         )
         get_next_chunk = None
 
-    # Build model and wrap in DDP
+    # Build model: compile first, then wrap in DDP.
+    # Compiling before DDP avoids the DDP-internal compile_fn backend which
+    # causes 'int object has no attribute meta' crashes on the second forward pass.
     model = build_model(layout, model_cfg, "x", use_full_bias=use_full_bias)
     device = torch.device(train_cfg.device)
     model.to(device)
-    
     model = torch.compile(model, mode="reduce-overhead")
     model = DDP(model, device_ids=[local_rank], find_unused_parameters=False)
+    
 
     n_params = sum(p.numel() for p in model.parameters())
     if is_main:
