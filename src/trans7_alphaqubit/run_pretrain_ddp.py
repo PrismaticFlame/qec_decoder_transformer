@@ -183,7 +183,8 @@ def pretrain_single_ddp(
     model = build_model(layout, model_cfg, "x", use_full_bias=use_full_bias)
     device = torch.device(train_cfg.device)
     model.to(device)
-    model = torch.compile(model, mode="reduce-overhead")
+    # torch.compile disabled — re-enable once DDP+compile interaction is resolved
+    # model = torch.compile(model, mode="reduce-overhead")
     model = DDP(model, device_ids=[local_rank], find_unused_parameters=False)
     
 
@@ -285,19 +286,19 @@ def main():
 
     # Data preparation — only rank 0
     if is_main:
-        from move_surface_code_dirs import ensure_surface_code_data
-
-        repo_root = script_dir.parents[1]
-        if not ensure_surface_code_data(repo_root / "data", data_root):
-            print(
-                f"ERROR: No surface_code_b* directories found under {repo_root / 'data'}",
-                file=sys.stderr,
-            )
-            dist.destroy_process_group()
-            sys.exit(1)
-
         h5_path = data_root / "pretrain.h5"
         if not h5_path.exists():
+            from move_surface_code_dirs import ensure_surface_code_data
+
+            repo_root = script_dir.parents[1]
+            if not ensure_surface_code_data(repo_root / "data", data_root):
+                print(
+                    f"ERROR: No surface_code_b* directories found under {repo_root / 'data'}",
+                    file=sys.stderr,
+                )
+                dist.destroy_process_group()
+                sys.exit(1)
+
             import subprocess
 
             print(f"\n  pretrain.h5 not found — building from {data_root} ...")
