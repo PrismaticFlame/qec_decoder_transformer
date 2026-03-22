@@ -145,7 +145,7 @@ python -V
 ################################################################################
 
 # get to working folder
-cd /home/cdw24/src/trans7_alphaqubit 
+cd /home/${USER}/src/trans7_alphaqubit
 
 if [ ! -f "$ENV_PREFIX/.deps_installed" ]; then
   python -m pip install --upgrade pip wheel setuptools
