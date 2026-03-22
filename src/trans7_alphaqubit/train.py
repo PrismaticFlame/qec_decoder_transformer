@@ -101,6 +101,8 @@ def train(
     get_next_train_chunk=None,
     rank: int = 0,
     world_size: int = 1,
+    layout=None,
+    resume_from: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Train model according to cfg (TrainConfig).
@@ -171,6 +173,39 @@ def train(
     }
     history: Dict[str, List] = {"train": [], "eval": []}
 
+    # ---- Resume from checkpoint ----
+    # If resume_from is set, we reload:
+    #   - model weights (into the underlying module, bypassing DDP's module. prefix)
+    #   - EMA shadow parameters
+    #   - optimizer momentum states (Lion keeps gradient EMA; losing these wastes ~50k warmup steps)
+    #   - GradScaler state (only matters for float16; bfloat16 on H200 has no scaler)
+    #   - current step  (so the loop starts from here, not 0)
+    #   - best LER + best step (so we don't incorrectly re-save a worse checkpoint)
+    #   - training history (so loss curves are continuous across runs)
+    start_step = 0
+    if resume_from is not None and Path(resume_from).exists():
+        if is_main:
+            print(f"  Resuming from: {resume_from}")
+        ckpt_r = torch.load(resume_from, map_location=device, weights_only=False)
+        # getattr(model, 'module', model) unwraps DDP if present, is a no-op for raw models.
+        # This means the same checkpoint works for single-GPU and multi-GPU.
+        raw_model = getattr(model, "module", model)
+        raw_model.load_state_dict(ckpt_r["model_state_dict"])
+        if ema is not None and ckpt_r.get("ema_state_dict") is not None:
+            ema.load_state_dict(ckpt_r["ema_state_dict"])
+        optimizer.load_state_dict(ckpt_r["optimizer_state_dict"])
+        scaler.load_state_dict(ckpt_r["scaler_state_dict"])
+        start_step = ckpt_r.get("step", 0) + 1   # +1: the saved step already ran
+        best["ler"]  = ckpt_r.get("best_ler",  float("inf"))
+        best["step"] = ckpt_r.get("best_step", -1)
+        if ckpt_r.get("history"):
+            history = ckpt_r["history"]
+        if is_main:
+            print(f"  Resumed at step {start_step}  best_ler={best['ler']:.6f} @ step {best['step']}")
+    elif resume_from is not None:
+        if is_main:
+            print(f"  WARNING: resume_from={resume_from!r} not found — starting from scratch")
+
     # Initial loader
     cur_bs = get_batch_size(0, cfg)
     cur_train_dataset = train_dataset
@@ -195,10 +230,14 @@ def train(
     )
     train_iter = iter(train_loader)
 
+    # initial=start_step tells tqdm we're already that far, so the % is correct on resume.
+    # total=cfg.num_steps is the full run length regardless of where we start.
     pbar = (
-        tqdm(range(cfg.num_steps), desc=run_name, dynamic_ncols=True)
+        tqdm(range(start_step, cfg.num_steps),
+             initial=start_step, total=cfg.num_steps,
+             desc=run_name, dynamic_ncols=True)
         if is_main
-        else range(cfg.num_steps)
+        else range(start_step, cfg.num_steps)
     )
     model.train()
 
@@ -333,7 +372,20 @@ def train(
                     }
 
                 if checkpoint_path is not None:
-                    _save_checkpoint(model, ema, cfg, best, checkpoint_path)
+                    _save_checkpoint(model, ema, cfg, best, checkpoint_path,
+                                     layout=layout, history=history)
+
+            # Always save a resume checkpoint at every eval (overwrites previous).
+            # Saving every eval (not just on improvement) means we never lose more
+            # than eval_every steps of work if a job is killed.
+            if checkpoint_path is not None:
+                resume_path = (
+                    str(Path(checkpoint_path).parent
+                        / (Path(checkpoint_path).stem + "_resume.pth"))
+                )
+                _save_resume_checkpoint(model, ema, optimizer, scaler, cfg, best,
+                                        step, resume_path,
+                                        layout=layout, history=history)
 
             history["eval"].append(
                 {
@@ -363,13 +415,48 @@ def train(
 # -----------------------------------------------------------------------
 
 
-def _save_checkpoint(model, ema, cfg, best, path):
+def _raw_state(model) -> dict:
+    """Return state_dict from the underlying module, stripping DDP's module. prefix."""
+    return getattr(model, "module", model).state_dict()
+
+
+def _save_checkpoint(model, ema, cfg, best, path, layout=None, history=None):
+    """Best-model checkpoint — saved only when val LER improves.
+    Includes layout so the checkpoint is self-contained (no pretrain.h5 needed for eval)."""
     torch.save(
         {
-            "model_state_dict": model.state_dict(),
-            "ema_state_dict": ema.state_dict() if ema is not None else None,
-            "best_ler": best["ler"],
-            "best_step": best["step"],
+            "model_state_dict": _raw_state(model),
+            "ema_state_dict":   ema.state_dict() if ema is not None else None,
+            "best_ler":         best["ler"],
+            "best_step":        best["step"],
+            "layout":           layout,
+            "history":          history,
+        },
+        path,
+    )
+
+
+def _save_resume_checkpoint(model, ema, optimizer, scaler, cfg, best,
+                             step, path, layout=None, history=None):
+    """Resume checkpoint — saved every eval step, always overwrites the same file.
+    Contains everything needed to continue training exactly where it left off:
+      - model + EMA weights
+      - optimizer momentum states (Lion keeps gradient EMA; losing these wastes ~50k warmup)
+      - GradScaler state (no-op for bfloat16, but harmless to save)
+      - current step (not best_step — the step the job was actually at when saved)
+      - layout + history so the file is self-contained
+    File size: ~2× the best checkpoint (extra optimizer states)."""
+    torch.save(
+        {
+            "model_state_dict":     _raw_state(model),
+            "ema_state_dict":       ema.state_dict() if ema is not None else None,
+            "optimizer_state_dict": optimizer.state_dict(),
+            "scaler_state_dict":    scaler.state_dict(),
+            "step":                 step,
+            "best_ler":             best["ler"],
+            "best_step":            best["step"],
+            "layout":               layout,
+            "history":              history,
         },
         path,
     )

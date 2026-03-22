@@ -61,6 +61,7 @@ def pretrain_single_ddp(
     use_full_bias: bool = True,
     use_wandb: bool = False,
     monolithic_file: Optional[Path] = None,
+    resume_from: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """Train one model for a given distance using DDP across multiple GPUs."""
     if train_cfg is None:
@@ -214,6 +215,8 @@ def pretrain_single_ddp(
         get_next_train_chunk=get_next_chunk,
         rank=rank,
         world_size=world_size,
+        layout=layout,
+        resume_from=str(resume_from) if resume_from is not None else None,
     )
     elapsed = time.time() - t0
 
@@ -275,6 +278,13 @@ def main():
     parser.add_argument("--eval_every", type=int, default=5_000)
     parser.add_argument("--use_wandb", action="store_true")
     parser.add_argument("--no_full_bias", action="store_true")
+    parser.add_argument(
+        "--resume", type=str, default=None,
+        help="Path to a *_resume.pth checkpoint to continue training from. "
+             "If omitted, training starts from scratch. "
+             "The resume checkpoint contains model weights, optimizer state, "
+             "EMA state, and the step count so training picks up exactly where it left off.",
+    )
     args = parser.parse_args()
 
     rank, world_size, local_rank = setup_distributed()
@@ -341,6 +351,12 @@ def main():
             else h5_path
         )
 
+        # Resume path: if --resume is given, use it directly for the first (and usually only)
+        # distance. For multi-distance runs, the same path is passed to all distances —
+        # train() will only load it if the model architecture matches, so it is safe to pass
+        # even when training d=5 after a d=3 resume checkpoint (load_state_dict strict=False).
+        resume_path = Path(args.resume) if args.resume else None
+
         result = pretrain_single_ddp(
             bases=args.bases,
             distance=distance,
@@ -355,6 +371,7 @@ def main():
             use_full_bias=not args.no_full_bias,
             use_wandb=args.use_wandb,
             monolithic_file=mono,
+            resume_from=resume_path,
         )
         results.append(result)
 
