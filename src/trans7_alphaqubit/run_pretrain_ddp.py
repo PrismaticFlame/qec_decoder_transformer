@@ -35,11 +35,11 @@ from train import save_history, train
 
 def setup_distributed():
     """Initialize the distributed process group and return rank/world_size."""
-    dist.init_process_group(backend="nccl")
-    rank = dist.get_rank()
-    world_size = dist.get_world_size()
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
     torch.cuda.set_device(local_rank)
+    dist.init_process_group(backend="nccl", device_id=torch.device(f"cuda:{local_rank}"))
+    rank = dist.get_rank()
+    world_size = dist.get_world_size()
     return rank, world_size, local_rank
 
 
@@ -186,7 +186,7 @@ def pretrain_single_ddp(
     model.to(device)
     # torch.compile disabled — re-enable once DDP+compile interaction is resolved
     # model = torch.compile(model, mode="reduce-overhead")
-    model = DDP(model, device_ids=[local_rank], find_unused_parameters=False)
+    model = DDP(model, device_ids=[local_rank], find_unused_parameters=False, gradient_as_bucket_view=True)
     
 
     n_params = sum(p.numel() for p in model.parameters())
