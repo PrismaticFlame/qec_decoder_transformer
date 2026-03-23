@@ -139,10 +139,19 @@ def fetch_job_data(job_id: str, log_dir: str) -> dict:
         ).stdout.strip()
         parts = sq.split()
         slurm = {
-            "state":     parts[1] if len(parts) > 1 else "?",
-            "elapsed":   parts[2] if len(parts) > 2 else "?",
-            "remaining": parts[3] if len(parts) > 3 else "?",
+            "state":      parts[1] if len(parts) > 1 else "?",
+            "elapsed":    parts[2] if len(parts) > 2 else "?",
+            "remaining":  parts[3] if len(parts) > 3 else "?",
+            "start_time": None,
         } if parts else None
+        # For pending jobs, fetch estimated start time separately
+        if slurm and slurm["state"] == "PENDING":
+            sq2 = subprocess.run(
+                ["squeue", "-j", job_id, "--start", "--format=%S", "--noheader"],
+                capture_output=True, text=True, timeout=5,
+            ).stdout.strip()
+            if sq2:
+                slurm["start_time"] = sq2
     except Exception:
         slurm = None
 
@@ -305,6 +314,17 @@ let refreshInterval = 15;
 let countdown = refreshInterval;
 let timer;
 
+function humanRemaining(s) {
+  if (!s || s === '?') return '';
+  let days = 0, hours = 0, mins = 0;
+  const dash = s.indexOf('-');
+  if (dash !== -1) { days = parseInt(s); s = s.substring(dash + 1); }
+  const p = s.split(':');
+  if (p.length >= 2) { hours = parseInt(p[0]); mins = parseInt(p[1]); }
+  const totalH = days * 24 + hours + Math.round(mins / 60);
+  return days > 0 ? `~${totalH}h (${days}d ${hours}h)` : `~${totalH}h`;
+}
+
 function badge(state) {
   if (!state) return '<span class="badge badge-unknown">UNKNOWN</span>';
   const cls = state === 'RUNNING' ? 'running' : state === 'PENDING' ? 'pending' :
@@ -326,9 +346,17 @@ function renderJob(d) {
   const pct = tqdm ? (100 * tqdm.step / tqdm.total).toFixed(2) : null;
 
   // SLURM
-  const slurmHtml = slurm.state
-    ? `<div class="times">Elapsed: <span>${slurm.elapsed}</span>  &nbsp;  Remaining: <span>${slurm.remaining}</span></div>`
-    : `<div class="times" style="color:var(--red)">Job not found — finished or not started</div>`;
+  let slurmHtml;
+  if (!slurm.state) {
+    slurmHtml = `<div class="times" style="color:var(--red)">Job not found — finished or not started</div>`;
+  } else if (slurm.state === 'PENDING') {
+    const startStr = (slurm.start_time && slurm.start_time !== 'N/A')
+      ? slurm.start_time.replace('T', ' ')
+      : 'unknown';
+    slurmHtml = `<div class="times">Est. start: <span style="color:var(--yellow)">${startStr}</span></div>`;
+  } else {
+    slurmHtml = `<div class="times">Elapsed: <span>${slurm.elapsed}</span> <span style="color:var(--dim)">${humanRemaining(slurm.elapsed)}</span>  &nbsp;  Remaining: <span>${slurm.remaining}</span> <span style="color:var(--dim)">${humanRemaining(slurm.remaining)}</span></div>`;
+  }
 
   // Training progress
   let trainingHtml = '<div class="no-gpu">Waiting for training output...</div>';
