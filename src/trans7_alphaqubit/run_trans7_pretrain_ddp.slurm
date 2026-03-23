@@ -112,8 +112,8 @@ if [ ! -d "$MINIFORGE_DIR" ]; then
   curl -L -o "$SCRDIR/Miniforge3.sh" \
     https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh
   bash "$SCRDIR/Miniforge3.sh" -b -p "$MINIFORGE_DIR"
-elif ! "$MINIFORGE_DIR/bin/conda" info &>/dev/null 2>&1; then
-  echo "WARNING: conda is broken — attempting minimal repair (pip install boltons)..."
+elif ! "$MINIFORGE_DIR/bin/python" -c "import boltons" &>/dev/null 2>&1; then
+  echo "WARNING: boltons missing — repairing..."
   "$MINIFORGE_DIR/bin/pip" install boltons || {
     echo "ERROR: Repair failed. Another job may be using this environment."
     echo "Wait for other jobs to finish, then manually run:"
@@ -193,6 +193,14 @@ RESUME_FLAG=""
 
 CKPT_DIR="/home/${USER}/src/trans7_alphaqubit/checkpoints/pretrain"
 
+echo "===== Starting GPU monitor (logging every 5s to logs/gpu_usage_${SLURM_JOB_ID}.log) ====="
+nvidia-smi \
+  --query-gpu=timestamp,utilization.gpu,utilization.memory,memory.used,memory.total,temperature.gpu,power.draw \
+  --format=csv \
+  -l 5 \
+  >> "logs/gpu_usage_${SLURM_JOB_ID}.log" &
+GPU_MONITOR_PID=$!
+
 # Disable -e for the torchrun block so a non-zero exit (killed by time limit,
 # OOM, etc.) doesn't abort the script before the PATH B requeue check below.
 set +e
@@ -213,6 +221,7 @@ torchrun \
   ${RESUME_FLAG}
 TORCHRUN_EXIT=$?
 set -e
+kill $GPU_MONITOR_PID 2>/dev/null || true
 
 echo "===== torchrun exited (code=$TORCHRUN_EXIT) at $(date) ====="
 

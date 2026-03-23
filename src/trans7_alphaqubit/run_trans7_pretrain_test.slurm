@@ -59,8 +59,8 @@ if [ ! -d "$MINIFORGE_DIR" ]; then
   curl -L -o "$SCRDIR/Miniforge3.sh" \
     https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh
   bash "$SCRDIR/Miniforge3.sh" -b -p "$MINIFORGE_DIR"
-elif ! "$MINIFORGE_DIR/bin/conda" info &>/dev/null 2>&1; then
-  echo "WARNING: conda is broken — attempting minimal repair (pip install boltons)..."
+elif ! "$MINIFORGE_DIR/bin/python" -c "import boltons" &>/dev/null 2>&1; then
+  echo "WARNING: boltons missing — repairing..."
   "$MINIFORGE_DIR/bin/pip" install boltons || {
     echo "ERROR: Repair failed. Another job may be using this environment."
     echo "Wait for other jobs to finish, then manually run:"
@@ -91,7 +91,7 @@ python -V
 # 1) Install dependencies (skipped if already installed)
 ################################################################################
 
-cd /home/${USER}/src/trans7_alphaqubit
+cd /home/${USER}/src/trans7_alphaqubit_ckpt
 
 if [ ! -f "$ENV_PREFIX/.deps_installed" ]; then
   python -m pip install --upgrade pip wheel setuptools
@@ -149,10 +149,10 @@ torchrun \
   --eval_every "${EVAL_EVERY}" \
   --d_model "${D_MODEL}" \
   --data_dir "$LOCAL_DATA_DIR" \
-  --checkpoint_dir "/home/${USER}/src/trans7_alphaqubit/checkpoints/test" \
+  --checkpoint_dir "/home/${USER}/src/trans7_alphaqubit_ckpt/checkpoints/test" \
   ${USE_WANDB}
 
 kill $GPU_MONITOR_PID 2>/dev/null || true
 
 echo "===== Smoke test finished at $(date) ====="
-echo "Checkpoints written to: /home/${USER}/src/trans7_alphaqubit/checkpoints/test"
+echo "Checkpoints written to: /home/${USER}/src/trans7_alphaqubit_ckpt/checkpoints/test"

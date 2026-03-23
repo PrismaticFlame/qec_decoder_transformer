@@ -67,8 +67,8 @@ if [ ! -d "$MINIFORGE_DIR" ]; then
   curl -L -o "$SCRDIR/Miniforge3.sh" \
     https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh
   bash "$SCRDIR/Miniforge3.sh" -b -p "$MINIFORGE_DIR"
-elif ! "$MINIFORGE_DIR/bin/conda" info &>/dev/null 2>&1; then
-  echo "WARNING: conda is broken — attempting minimal repair (pip install boltons)..."
+elif ! "$MINIFORGE_DIR/bin/python" -c "import boltons" &>/dev/null 2>&1; then
+  echo "WARNING: boltons missing — repairing..."
   "$MINIFORGE_DIR/bin/pip" install boltons || {
     echo "ERROR: Repair failed. Another job may be using this environment."
     echo "Wait for other jobs to finish, then manually run:"
