@@ -5,7 +5,8 @@ arc_dashboard.py — Browser-based dashboard for monitoring ARC training jobs.
 SETUP (each laptop session):
 ──────────────────────────────────────────────────────────────────────────────
   1. On ARC login node, start the server:
-       python ~/arc_dashboard.py --jobs 4828257
+       python ~/arc_dashboard.py                          # view all jobs on account
+       python ~/arc_dashboard.py --jobs 4828257           # view specific job
        python ~/arc_dashboard.py --jobs 4828257 4829000   # multiple jobs
 
   2. On your laptop, open a terminal and run (leave it minimized):
@@ -123,7 +124,29 @@ def _parse_errors(lines):
     return result[-10:]
 
 
-def fetch_job_data(job_id: str, log_dir: str) -> dict:
+def discover_jobs(account: str | None, users: list[str]) -> dict[str, str]:
+    """
+    Query squeue and return {job_id: username} for all matching jobs.
+    Filters by account and/or users; both are optional.
+    """
+    cmd = ["squeue", "--format=%i %u", "--noheader"]
+    if account:
+        cmd += ["-A", account]
+    if users:
+        cmd += ["-u", ",".join(users)]
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=10).stdout
+        result = {}
+        for line in out.strip().splitlines():
+            parts = line.split()
+            if len(parts) >= 2:
+                result[parts[0]] = parts[1]
+        return result
+    except Exception:
+        return {}
+
+
+def fetch_job_data(job_id: str, log_dir: str, username: str = "") -> dict:
     """Collect all data for one job. Called from the background refresh thread."""
     out_log, err_log, gpu_log = _find_logs(log_dir, job_id)
 
@@ -166,6 +189,7 @@ def fetch_job_data(job_id: str, log_dir: str) -> dict:
 
     return {
         "job_id":   job_id,
+        "username": username,
         "slurm":    slurm,
         "tqdm":     tqdm,
         "eta_h":    eta_h,
@@ -182,12 +206,22 @@ _cache: dict = {}
 _cache_lock = threading.Lock()
 
 
-def _refresh_loop(job_ids: list[str], log_dirs: dict[str, str]):
+def _refresh_loop(account: str | None, users: list[str], log_dir: str,
+                  static_jobs: dict[str, str]):
+    """
+    static_jobs: {job_id: username} for jobs passed via --jobs
+    account/users: used to dynamically discover jobs from squeue each cycle
+    """
     while True:
-        for jid in job_ids:
-            data = fetch_job_data(jid, log_dirs[jid])
+        live_jobs: dict[str, str] = dict(static_jobs)
+        if account or users:
+            live_jobs.update(discover_jobs(account, users))
+
+        for jid, username in live_jobs.items():
+            data = fetch_job_data(jid, log_dir, username)
             with _cache_lock:
                 _cache[jid] = data
+
         time.sleep(REFRESH_INTERVAL)
 
 
@@ -260,6 +294,7 @@ _HTML = """<!DOCTYPE html>
           padding: 16px; display: flex; flex-direction: column; gap: 12px; }
   .card-header { display: flex; align-items: center; justify-content: space-between; }
   .job-id { color: var(--cyan); font-size: 15px; font-weight: bold; }
+  .username { color: var(--dim); font-size: 12px; }
   .badge { padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; }
   .badge-running  { background: #1c4a2e; color: var(--green); }
   .badge-pending  { background: #3d3005; color: var(--yellow); }
@@ -406,7 +441,10 @@ function renderJob(d) {
   return `
     <div class="card">
       <div class="card-header">
-        <span class="job-id">Job ${d.job_id}</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="job-id">Job ${d.job_id}</span>
+          ${d.username ? `<span class="username">@${d.username}</span>` : ''}
+        </div>
         ${badge(slurm.state)}
       </div>
       ${slurmHtml}
@@ -467,7 +505,12 @@ def main():
     global REFRESH_INTERVAL
 
     parser = argparse.ArgumentParser(description="ARC web dashboard")
-    parser.add_argument("--jobs",     nargs="+", required=True, help="SLURM job ID(s)")
+    parser.add_argument("--jobs",     nargs="*", default=[],  metavar="JOB_ID",
+                        help="Explicit SLURM job ID(s) to monitor")
+    parser.add_argument("--account",  default="quantum_training",
+                        help="SLURM account name — monitor all jobs under this account")
+    parser.add_argument("--users",    nargs="*", default=['cdw24', 'tzuchen', 'arjuns8'],  metavar="USER",
+                        help="Username(s) — monitor all jobs submitted by these users")
     parser.add_argument("--log-dir",  default=None,
                         help="Log directory override (default: trans7_alphaqubit_ckpt/logs)")
     parser.add_argument("--port",     type=int, default=PORT, help=f"Port (default: {PORT})")
@@ -475,23 +518,34 @@ def main():
                         help=f"Refresh interval in seconds (default: {REFRESH_INTERVAL})")
     args = parser.parse_args()
 
+    # if not args.jobs and not args.account and not args.users:
+    #     parser.error("Provide at least one of --jobs, --account, or --users")
+
     REFRESH_INTERVAL = args.interval
 
     user = os.environ.get("USER", "cdw24")
-    default_log_dir = DEFAULT_LOG_DIR.format(user=user)
+    log_dir = args.log_dir or DEFAULT_LOG_DIR.format(user=user)
 
-    # Build per-job log dir mapping
-    log_dirs = {jid: (args.log_dir or default_log_dir) for jid in args.jobs}
+    # Explicit jobs have no username (unknown without a squeue lookup)
+    static_jobs: dict[str, str] = {jid: "" for jid in args.jobs}
 
     # Prime the cache immediately before the server starts
-    print(f"Fetching initial data for job(s): {', '.join(args.jobs)}")
-    for jid in args.jobs:
-        _cache[jid] = fetch_job_data(jid, log_dirs[jid])
+    initial_jobs: dict[str, str] = dict(static_jobs)
+    if args.account or args.users:
+        initial_jobs.update(discover_jobs(args.account, args.users))
+
+    print(f"Fetching initial data for {len(initial_jobs)} job(s)...")
+    for jid, uname in initial_jobs.items():
+        _cache[jid] = fetch_job_data(jid, log_dir, uname)
         state = (_cache[jid]["slurm"] or {}).get("state", "not found")
-        print(f"  {jid}: {state}  logs: {log_dirs[jid]}")
+        print(f"  {jid} ({uname or '?'}): {state}  logs: {log_dir}")
 
     # Start background refresh thread
-    t = threading.Thread(target=_refresh_loop, args=(args.jobs, log_dirs), daemon=True)
+    t = threading.Thread(
+        target=_refresh_loop,
+        args=(args.account, args.users, log_dir, static_jobs),
+        daemon=True,
+    )
     t.start()
 
     # Start HTTP server
