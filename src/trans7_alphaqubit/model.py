@@ -152,16 +152,21 @@ class MHAttentionWithBias(nn.Module):
     def __init__(self, d_d: int, d_attn: int, d_mid: int, db: int, H: int):
         super().__init__()
         self.H = H
+        self.d_attn = d_attn
         self.Wb = nn.Linear(db, H, bias=False)
-        self.heads = nn.ModuleList(
-            [AttentionWithBiasHead(d_d, d_attn, d_mid) for _ in range(H)]
-        )
+        self.Wq = nn.Linear(d_d, H * d_attn, bias=True)
+        self.Wk = nn.Linear(d_d, H * d_attn, bias=True)
+        self.Wv = nn.Linear(d_d, H * d_mid, bias=True)
         self.Wo = nn.Linear(H * d_mid, d_d, bias=True)
 
-    def forward(self, X: torch.Tensor, bias: torch.Tensor) -> torch.Tensor:
-        Bprime = self.Wb(bias).permute(0, 3, 1, 2)  # (B, H, S, S)
-        Ys = [self.heads[h](X, Bprime[:, h])[0] for h in range(self.H)]
-        return self.Wo(torch.cat(Ys, dim=-1))
+    def forward(self, X, bias):
+        B, L, _ = X.shape
+        Bp = self.Wb(bias).permute(0, 3, 1, 2)  # (B, H, S, S)
+        Q = self.Wq(X).view(B, L, self.H, self.d_attn).transpose(1, 2)
+        K = self.Wk(X).view(B, L, self.H, self.d_attn).transpose(1, 2)
+        V = self.Wv(X).view(B, L, self.H, -1).transpose(1, 2)
+        Y = F.scaled_dot_product_attention(Q, K, V, attn_mask=Bp)
+        return self.Wo(Y.transpose(1, 2).contiguous().view(B, L, -1))
 
 
 # ============================================================
