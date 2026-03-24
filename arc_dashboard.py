@@ -10,11 +10,11 @@ SETUP (each laptop session):
        python ~/arc_dashboard.py --jobs 4828257 4829000   # multiple jobs
 
   2. On your laptop, open a terminal and run (leave it minimized):
-       ssh -L 5000:localhost:5000 -N cdw24@tinkercliffs2.arc.vt.edu
+       ssh -L 5000:localhost:5000 -N USER@tinkercliffs2.arc.vt.edu
 
   3. Open browser:  http://localhost:5000
 
-  Dashboard auto-refreshes every 15s. Ctrl+C on ARC to stop the server.
+  Dashboard auto-refreshes every 15s. pkill -f arc_dashboard.py to stop on ARC.
 ──────────────────────────────────────────────────────────────────────────────
 No extra Python dependencies — stdlib only.
 """
@@ -146,8 +146,10 @@ def discover_jobs(account: str | None, users: list[str]) -> dict[str, str]:
         return {}
 
 
-def fetch_job_data(job_id: str, log_dir: str, username: str = "") -> dict:
+def fetch_job_data(job_id: str, log_dir_template: str, username: str = "") -> dict:
     """Collect all data for one job. Called from the background refresh thread."""
+    owner   = username or os.environ["USER"]
+    log_dir = log_dir_template.format(user=owner)
     out_log, err_log, gpu_log = _find_logs(log_dir, job_id)
 
     out_lines = _tail(out_log)
@@ -206,7 +208,7 @@ _cache: dict = {}
 _cache_lock = threading.Lock()
 
 
-def _refresh_loop(account: str | None, users: list[str], log_dir: str,
+def _refresh_loop(account: str | None, users: list[str], log_dir_template: str,
                   static_jobs: dict[str, str]):
     """
     static_jobs: {job_id: username} for jobs passed via --jobs
@@ -218,7 +220,7 @@ def _refresh_loop(account: str | None, users: list[str], log_dir: str,
             live_jobs.update(discover_jobs(account, users))
 
         for jid, username in live_jobs.items():
-            data = fetch_job_data(jid, log_dir, username)
+            data = fetch_job_data(jid, log_dir_template, username)
             with _cache_lock:
                 _cache[jid] = data
 
@@ -523,8 +525,8 @@ def main():
 
     REFRESH_INTERVAL = args.interval
 
-    user = os.environ.get("USER", "cdw24")
-    log_dir = args.log_dir or DEFAULT_LOG_DIR.format(user=user)
+    user             = os.environ["USER"]
+    log_dir_template = args.log_dir or DEFAULT_LOG_DIR  # keep {user} unresolved
 
     # Explicit jobs have no username (unknown without a squeue lookup)
     static_jobs: dict[str, str] = {jid: "" for jid in args.jobs}
@@ -536,14 +538,15 @@ def main():
 
     print(f"Fetching initial data for {len(initial_jobs)} job(s)...")
     for jid, uname in initial_jobs.items():
-        _cache[jid] = fetch_job_data(jid, log_dir, uname)
-        state = (_cache[jid]["slurm"] or {}).get("state", "not found")
-        print(f"  {jid} ({uname or '?'}): {state}  logs: {log_dir}")
+        _cache[jid] = fetch_job_data(jid, log_dir_template, uname)
+        state    = (_cache[jid]["slurm"] or {}).get("state", "not found")
+        resolved = log_dir_template.format(user=uname or user)
+        print(f"  {jid} ({uname or '?'}): {state}  logs: {resolved}")
 
     # Start background refresh thread
     t = threading.Thread(
         target=_refresh_loop,
-        args=(args.account, args.users, log_dir, static_jobs),
+        args=(args.account, args.users, log_dir_template, static_jobs),
         daemon=True,
     )
     t.start()
