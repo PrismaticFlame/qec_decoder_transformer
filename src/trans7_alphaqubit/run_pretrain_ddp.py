@@ -184,8 +184,18 @@ def pretrain_single_ddp(
     model = build_model(layout, model_cfg, "x", use_full_bias=use_full_bias)
     device = torch.device(train_cfg.device)
     model.to(device)
-    # torch.compile disabled — re-enable once DDP+compile interaction is resolved
-    # model = torch.compile(model, mode="reduce-overhead")
+    # Compile before DDP — this is the required order.
+    # - dynamic=True: handles variable T (rounds) across batches without recompiling
+    #   for each new shape. Critical for curriculum training.
+    # - No mode="reduce-overhead": that mode enables CUDA Graphs, which conflict
+    #   with DDP's internal stream usage and cause asymmetric GPU crashes.
+    # - fullgraph=False (default): allows graph breaks at the Python RNN loop over T.
+    #   fullgraph=True would fail on dynamic control flow.
+    try:
+        model = torch.compile(model, dynamic=True)
+    except Exception as e:
+        if is_main:
+            print(f"  WARNING: torch.compile failed ({e}), running in eager mode")
     model = DDP(model, device_ids=[local_rank], find_unused_parameters=False, gradient_as_bucket_view=True)
     
 

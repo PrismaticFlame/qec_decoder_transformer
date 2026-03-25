@@ -57,7 +57,7 @@ from layout import get_or_build_layout
 from model import AlphaQubitModel, ScatteringResidualConvBlock
 
 from train import save_history, train
-from utils import AttentionBiasProvider, ManhattanDistanceBias
+from utils import AttentionBiasProviderUnified, AttentionBiasProviderSplit, ManhattanDistanceBias
 
 # -----------------------------------------------------------------------
 # Folder discovery helpers
@@ -263,12 +263,21 @@ def build_model(
     )
 
     if use_full_bias:
-        bias_provider = AttentionBiasProvider(
-            db=model_cfg.bias_dim,
-            max_dist=8,
-            num_residual_layers=model_cfg.bias_residual_layers,
-            indicator_features=model_cfg.indicator_features,
-        )
+        if model_cfg.bias_mode == "split":
+            bias_provider = AttentionBiasProviderSplit(
+                db=model_cfg.bias_dim,
+                max_dist=8,
+                geom_resnet_layers=model_cfg.geom_resnet_layers,
+                interaction_resnet_layers=model_cfg.interaction_resnet_layers,
+                indicator_features=model_cfg.indicator_features,
+            )
+        else:  # "unified" — AlphaQubit-faithful default
+            bias_provider = AttentionBiasProviderUnified(
+                db=model_cfg.bias_dim,
+                max_dist=8,
+                num_residual_layers=model_cfg.bias_residual_layers,
+                indicator_features=model_cfg.indicator_features,
+            )
     else:
         bias_provider = ManhattanDistanceBias(db=model_cfg.bias_dim, max_dist=8)
 

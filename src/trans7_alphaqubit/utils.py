@@ -226,22 +226,123 @@ class ManhattanDistanceBias(nn.Module):
 
 
 # ============================================================
-# Complete Attention Bias Provider (AlphaQubit paper style)
+# Shared helpers used by both bias provider variants
 # ============================================================
-class AttentionBiasProvider(nn.Module):
+
+def _build_geometric_features(
+    stab_xy: torch.Tensor,
+    stab_type: Optional[torch.Tensor],
+    coord_scale: float,
+    max_dist: int,
+) -> Dict[str, torch.Tensor]:
     """
-    Complete attention bias provider following AlphaQubit paper.
-    
-    Features included:
-    1. Manhattan distance
-    2. Coordinates (x, y) for each stabilizer
-    3. Offset (dx, dy) between stabilizer pairs
-    4. Stabilizer type (X or Z)
-    5. Event indicators (detection events from syndrome)
-    
-    Output shape: (B, S, S, db)
-    
-    The features are processed through a ResNet to produce the final bias.
+    Build pairwise geometry tensors from stabilizer coordinates and types.
+    Returns dict of (S, S, *) tensors — no batch dimension.
+    """
+    S = stab_xy.size(0)
+    xy = stab_xy.float()
+    dx = xy[:, None, 0] - xy[None, :, 0]  # (S, S)
+    dy = xy[:, None, 1] - xy[None, :, 1]  # (S, S)
+    dist = (dx.abs() + dy.abs()).long().clamp_(0, max_dist)
+    coords = torch.stack([
+        xy[:, 0].unsqueeze(1).expand(S, S),
+        xy[:, 1].unsqueeze(1).expand(S, S),
+        xy[:, 0].unsqueeze(0).expand(S, S),
+        xy[:, 1].unsqueeze(0).expand(S, S),
+    ], dim=-1) * coord_scale  # (S, S, 4)
+    offset = torch.stack([dx, dy], dim=-1) * coord_scale  # (S, S, 2)
+    if stab_type is None:
+        stab_type = torch.zeros(S, dtype=torch.long, device=stab_xy.device)
+    type_pair = torch.stack([
+        stab_type.unsqueeze(1).expand(S, S),
+        stab_type.unsqueeze(0).expand(S, S),
+    ], dim=-1)  # (S, S, 2)
+    return {"dist": dist, "coords": coords, "offset": offset, "type_pair": type_pair}
+
+
+def _build_event_indicators(
+    syndrome: torch.Tensor,
+    cycle_index: torch.Tensor,
+    t: int,
+    indicator_features: int,
+) -> torch.Tensor:
+    """
+    Build pairwise event indicator features for cycle t.
+    Returns (B, S, S, indicator_features).
+    """
+    if cycle_index.dim() == 3:
+        cycle_index = cycle_index[0]  # (B, T, S) -> (T, S)
+    B = syndrome.size(0)
+    S = cycle_index.size(1)
+    if t >= cycle_index.size(0):
+        return torch.zeros(
+            B, S, S, indicator_features,
+            device=syndrome.device, dtype=torch.float32,
+        )
+    synd_t = syndrome[:, cycle_index[t]].float()  # (B, S)
+    ei = synd_t.unsqueeze(2)  # (B, S, 1)
+    ej = synd_t.unsqueeze(1)  # (B, 1, S)
+    return torch.stack([
+        ei.expand(B, S, S),
+        ej.expand(B, S, S),
+        ei * ej,
+        (ei - ej).abs(),
+        torch.maximum(ei, ej).expand(B, S, S),
+        torch.minimum(ei, ej).expand(B, S, S),
+        ((ei + ej) / 2.0).expand(B, S, S),
+    ], dim=-1)  # (B, S, S, 7)
+
+
+def _extract_batch_geometry(
+    batch: Dict[str, torch.Tensor],
+    S: int,
+    device: torch.device,
+) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[str]]:
+    """
+    Extract and validate stab_xy, stab_type, and patch_id from the batch dict.
+    Returns (stab_xy, stab_type, patch_id).
+    """
+    stab_xy = batch.get("stab_xy")
+    if stab_xy is None:
+        raise KeyError("bias_provider requires batch['stab_xy']")
+    if stab_xy.dim() == 3:
+        stab_xy = stab_xy[0]
+    if stab_xy.dim() != 2 or stab_xy.size(0) != S:
+        raise ValueError(f"stab_xy must be (S,2), got {stab_xy.shape}")
+    stab_xy = stab_xy.to(device)
+
+    stab_type = batch.get("stab_type")
+    if stab_type is not None:
+        if stab_type.dim() == 2:
+            stab_type = stab_type[0]
+        stab_type = stab_type.to(device).long()
+
+    # DataLoader collates strings into a list; all samples in a batch share the
+    # same patch, so the first element is the correct identifier.
+    patch_id = batch.get("patch_id")
+    if isinstance(patch_id, (list, tuple)):
+        patch_id = patch_id[0]
+
+    return stab_xy, stab_type, patch_id
+
+
+# ============================================================
+# AttentionBiasProviderUnified — AlphaQubit-faithful baseline
+# ============================================================
+
+class AttentionBiasProviderUnified(nn.Module):
+    """
+    Original AlphaQubit-faithful attention bias provider.
+
+    Geometry and event features are concatenated and processed jointly through
+    a single ResNet every cycle step. This allows the network to learn arbitrary
+    non-linear interactions between spatial layout and detection events (e.g.
+    "close together AND both fired").
+
+    Cost per cycle step: (B, S, S, input_dim) through num_residual_layers.
+    No caching — everything recomputed each step.
+
+    Controlled by ModelConfig.bias_residual_layers.
     """
 
     def __init__(
@@ -251,180 +352,48 @@ class AttentionBiasProvider(nn.Module):
         max_dist: int = 8,
         num_residual_layers: int = 8,
         indicator_features: int = 7,
-        coord_scale: float = 0.5,  # Normalize coordinates
+        coord_scale: float = 0.5,
     ):
         super().__init__()
         self.db = db
         self.max_dist = max_dist
         self.coord_scale = coord_scale
-
-        # Feature dimensions:
-        # - Manhattan distance: 1 (embedded to db_dim)
-        # - Coordinates: 2 (x, y) per stabilizer -> 4 (x_i, y_i, x_j, y_j) per pair
-        # - Offset: 2 (dx, dy)
-        # - Type: 2 (type_i, type_j) -> could be binary or embedded
-        # - Event indicators: indicator_features (per pair)
-        
-        # Distance embedding
-        self.dist_emb = nn.Embedding(max_dist + 1, db // 4)  # Use 1/4 of db for distance
-        
-        # Type embedding (X=0, Z=1, or could be more types)
-        self.type_emb = nn.Embedding(2, db // 8)  # X/Z type
-        
-        # Feature dimensions breakdown:
-        # - distance: db//4
-        # - coords (4): 4 * (db//16) = db//4
-        # - offset (2): 2 * (db//16) = db//8
-        # - type (2): 2 * (db//8) = db//4
-        # - events: indicator_features
-        # Total input: db//4 + db//4 + db//8 + db//4 + indicator_features
-        
-        # Coordinate and offset projections
-        coord_dim = db // 4
-        self.coord_proj = nn.Linear(4, coord_dim)  # (x_i, y_i, x_j, y_j)
-        self.offset_proj = nn.Linear(2, db // 8)   # (dx, dy)
-        
-        # Event indicator projection
         self.indicator_features = indicator_features
+
+        # Geometry embeddings
+        self.dist_emb = nn.Embedding(max_dist + 1, db // 4)
+        self.type_emb = nn.Embedding(2, db // 8)
+        self.coord_proj = nn.Linear(4, db // 4)   # (x_i, y_i, x_j, y_j)
+        self.offset_proj = nn.Linear(2, db // 8)  # (dx, dy)
+
+        # Event projection: indicator_features -> event_dim
         event_dim = db // 4 if indicator_features > 0 else 0
-        if indicator_features > 0:
-            self.event_proj = nn.Linear(indicator_features, event_dim)
-        else:
-            self.event_proj = None
-        
-        # Total input feature dimension
-        input_dim = (db // 4) + coord_dim + (db // 8) + (db // 4) + event_dim
+        self.event_proj = (
+            nn.Linear(indicator_features, event_dim)
+            if indicator_features > 0 else None
+        )
+
+        # Combined input dim: geom_dim + event_dim
+        # geom_dim  = db//4 + db//4 + db//8 + db//4 = 7*db//8
+        # event_dim = db//4
+        # input_dim = db//4 + db//4 + db//8 + db//4 + db//4 = db + db//8
+        geom_dim = (db // 4) + (db // 4) + (db // 8) + (db // 4)
+        input_dim = geom_dim + event_dim
         self.input_dim = input_dim
-        
-        # ResNet to process features
-        self.resnet_layers = nn.ModuleList()
-        for i in range(num_residual_layers):
-            self.resnet_layers.append(
-                nn.Sequential(
-                    nn.Linear(input_dim, db),
-                    nn.LayerNorm(db),
-                    nn.GELU(),
-                    nn.Linear(db, input_dim),
-                )
+
+        # Unified ResNet: runs on (B, S, S, input_dim) every cycle step.
+        # Geometry and events are processed together so the network can learn
+        # their interactions across all layers.
+        self.resnet = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(input_dim, db),
+                nn.LayerNorm(db),
+                nn.GELU(),
+                nn.Linear(db, input_dim),
             )
-        
-        # Final projection to db
+            for _ in range(num_residual_layers)
+        ])
         self.final_proj = nn.Linear(input_dim, db)
-        
-        # Cache for geometry-only features
-        self._cached_geom: Optional[Dict[str, torch.Tensor]] = None
-
-    def _build_geometric_features(
-        self,
-        stab_xy: torch.Tensor,
-        stab_type: Optional[torch.Tensor] = None,
-    ) -> Dict[str, torch.Tensor]:
-        """
-        Build geometric features that don't depend on batch/syndrome.
-        
-        Returns:
-            dict with:
-                - dist: (S, S) Manhattan distance
-                - coords: (S, S, 4) [x_i, y_i, x_j, y_j]
-                - offset: (S, S, 2) [dx, dy]
-                - type_pair: (S, S, 2) [type_i, type_j]
-        """
-        S = stab_xy.size(0)
-        xy = stab_xy.float()  # (S, 2)
-        
-        # Manhattan distance
-        dx = xy[:, None, 0] - xy[None, :, 0]  # (S, S)
-        dy = xy[:, None, 1] - xy[None, :, 1]  # (S, S)
-        dist = (dx.abs() + dy.abs()).long().clamp_(0, self.max_dist)  # (S, S)
-        
-        # Coordinates: [x_i, y_i, x_j, y_j] for each pair
-        x_i = xy[:, 0].unsqueeze(1).expand(S, S)  # (S, S)
-        y_i = xy[:, 1].unsqueeze(1).expand(S, S)  # (S, S)
-        x_j = xy[:, 0].unsqueeze(0).expand(S, S)  # (S, S)
-        y_j = xy[:, 1].unsqueeze(0).expand(S, S)  # (S, S)
-        coords = torch.stack([x_i, y_i, x_j, y_j], dim=-1)  # (S, S, 4)
-        coords = coords * self.coord_scale  # Normalize
-        
-        # Offset: [dx, dy]
-        offset = torch.stack([dx, dy], dim=-1)  # (S, S, 2)
-        offset = offset * self.coord_scale  # Normalize
-        
-        # Type pairs
-        if stab_type is None:
-            # Default: assume all are Z-type (0) for surface code
-            stab_type = torch.zeros(S, dtype=torch.long, device=stab_xy.device)
-        
-        type_i = stab_type.unsqueeze(1).expand(S, S)  # (S, S)
-        type_j = stab_type.unsqueeze(0).expand(S, S)  # (S, S)
-        type_pair = torch.stack([type_i, type_j], dim=-1)  # (S, S, 2)
-        
-        return {
-            "dist": dist,
-            "coords": coords,
-            "offset": offset,
-            "type_pair": type_pair,
-        }
-
-    def _build_event_indicators(
-        self,
-        syndrome: torch.Tensor,
-        cycle_index: torch.Tensor,
-        t: int,
-    ) -> torch.Tensor:
-        """
-        Build event indicators from syndrome values.
-
-        Args:
-            syndrome: (B, L) detection events
-            cycle_index: (T, S) or (B, T, S) indices mapping (batched by DataLoader)
-            t: current cycle index
-
-        Returns:
-            event_features: (B, S, S, indicator_features)
-        """
-        B = syndrome.size(0)
-
-        # Handle batched cycle_index: DataLoader stacks (T, S) -> (B, T, S)
-        # Since cycle_index is the same for all samples, take first row if batched
-        if cycle_index.dim() == 3:
-            cycle_index = cycle_index[0]  # (B, T, S) -> (T, S)
-
-        S = cycle_index.size(1)
-
-        if t >= cycle_index.size(0):
-            # Return zeros if cycle doesn't exist
-            return torch.zeros(B, S, S, self.event_proj.in_features if self.event_proj else 0,
-                             device=syndrome.device, dtype=syndrome.dtype)
-
-        # Get syndrome values for current cycle
-        idx_t = cycle_index[t]  # (S,)
-        synd_t = syndrome[:, idx_t]  # (B, S)
-        
-        # Build pairwise event indicators
-        # Features could include:
-        # - event_i, event_j (detection events at i and j)
-        # - event_i * event_j (both triggered)
-        # - |event_i - event_j| (difference)
-        # - max(event_i, event_j), min(event_i, event_j)
-        # - etc.
-        
-        event_i = synd_t.unsqueeze(2).expand(B, S, S)  # (B, S, S)
-        event_j = synd_t.unsqueeze(1).expand(B, S, S)  # (B, S, S)
-        
-        # Build indicator features
-        features = []
-        features.append(event_i)  # event at i
-        features.append(event_j)  # event at j
-        features.append(event_i * event_j)  # both triggered
-        features.append((event_i - event_j).abs())  # difference
-        features.append(torch.maximum(event_i, event_j))  # max
-        features.append(torch.minimum(event_i, event_j))  # min
-        features.append((event_i + event_j) / 2.0)  # average
-        
-        # Stack to (B, S, S, indicator_features)
-        event_features = torch.stack(features, dim=-1)  # (B, S, S, 7)
-        
-        return event_features
 
     def forward(
         self,
@@ -433,118 +402,202 @@ class AttentionBiasProvider(nn.Module):
         S: int,
         cycle: Optional[int] = None,
     ) -> torch.Tensor:
-        """
-        Build complete attention bias.
-        
-        Args:
-            batch: dict containing:
-                - "syndrome": (B, L) detection events
-                - "stab_xy": (S, 2) or (B, S, 2) stabilizer coordinates
-                - "stab_type": (S,) optional, stabilizer types (0=X, 1=Z)
-                - "cycle_index": (T, S) optional, for event indicators
-            S: number of stabilizers per cycle
-            cycle: current cycle index (for event indicators)
-        
-        Returns:
-            bias: (B, S, S, db)
-        """
-        # ---- Get stabilizer coordinates ----
-        stab_xy = batch.get("stab_xy", None)
-        if stab_xy is None:
-            raise KeyError("bias_provider requires batch['stab_xy']")
-        
-        # Accept (B, S, 2) or (S, 2)
-        if stab_xy.dim() == 3:
-            stab_xy = stab_xy[0]  # Assume same layout for all batches
-        
-        if stab_xy.dim() != 2 or stab_xy.size(0) != S or stab_xy.size(1) != 2:
-            raise ValueError(f"stab_xy must be (S,2), got {stab_xy.shape}")
-        
-        stab_xy = stab_xy.to(next(self.parameters()).device)
-        
-        # ---- Get stabilizer type (optional) ----
-        stab_type = batch.get("stab_type", None)
-        if stab_type is not None:
-            if stab_type.dim() == 2:
-                stab_type = stab_type[0]  # (S,)
-            stab_type = stab_type.to(stab_xy.device).long()
-        
-        # ---- Build/cache geometric features ----
-        cache_key = (S, stab_xy.device)
-        if self._cached_geom is None or self._cached_geom.get("S") != S:
-            geom = self._build_geometric_features(stab_xy, stab_type)
-            self._cached_geom = {"S": S, **geom}
-        else:
-            geom = {k: v for k, v in self._cached_geom.items() if k != "S"}
-        
-        # Move to device
-        for k, v in geom.items():
-            geom[k] = v.to(stab_xy.device)
-        
+        """Returns bias (B, S, S, db). patch_id is accepted but ignored."""
+        device = next(self.parameters()).device
+        stab_xy, stab_type, _ = _extract_batch_geometry(batch, S, device)
+
+        geom = _build_geometric_features(stab_xy, stab_type, self.coord_scale, self.max_dist)
         B = batch["syndrome"].size(0)
-        
-        # ---- Build event indicators (if available) ----
+
+        # Embed geometry — expand to batch dimension
+        dist_emb    = self.dist_emb(geom["dist"]).unsqueeze(0).expand(B, S, S, -1)
+        coords_emb  = self.coord_proj(geom["coords"]).unsqueeze(0).expand(B, S, S, -1)
+        offset_emb  = self.offset_proj(geom["offset"]).unsqueeze(0).expand(B, S, S, -1)
+        type_emb    = torch.cat([
+            self.type_emb(geom["type_pair"][:, :, 0]),
+            self.type_emb(geom["type_pair"][:, :, 1]),
+        ], dim=-1).unsqueeze(0).expand(B, S, S, -1)
+
+        # Embed events
         if self.event_proj is not None and cycle is not None:
-            cycle_index = batch.get("cycle_index", None)
+            cycle_index = batch.get("cycle_index")
             if cycle_index is not None:
-                event_features = self._build_event_indicators(
-                    batch["syndrome"], cycle_index, cycle
-                )  # (B, S, S, indicator_features)
-            else:
-                # Fallback: use zeros if cycle_index not available
-                event_features = torch.zeros(
-                    B, S, S, self.indicator_features,
-                    device=stab_xy.device, dtype=batch["syndrome"].dtype
+                event_features = _build_event_indicators(
+                    batch["syndrome"], cycle_index, cycle, self.indicator_features
                 )
-        else:
-            # No event features
-            event_features = torch.zeros(
-                B, S, S, self.indicator_features if self.event_proj else 0,
-                device=stab_xy.device, dtype=batch["syndrome"].dtype
+            else:
+                event_features = torch.zeros(
+                    B, S, S, self.indicator_features, device=device,
+                )
+            event_emb = self.event_proj(event_features.float())  # (B, S, S, event_dim)
+            x = torch.cat(
+                [dist_emb, coords_emb, offset_emb, type_emb, event_emb], dim=-1
             )
-        
-        # ---- Embed features ----
-        # Distance
-        dist_emb = self.dist_emb(geom["dist"])  # (S, S, db//4)
-        dist_emb = dist_emb.unsqueeze(0).expand(B, S, S, -1)  # (B, S, S, db//4)
-        
-        # Coordinates
-        coords_emb = self.coord_proj(geom["coords"])  # (S, S, coord_dim)
-        coords_emb = coords_emb.unsqueeze(0).expand(B, S, S, -1)  # (B, S, S, coord_dim)
-        
-        # Offset
-        offset_emb = self.offset_proj(geom["offset"])  # (S, S, db//8)
-        offset_emb = offset_emb.unsqueeze(0).expand(B, S, S, -1)  # (B, S, S, db//8)
-        
-        # Type
-        type_i_emb = self.type_emb(geom["type_pair"][:, :, 0])  # (S, S, db//8)
-        type_j_emb = self.type_emb(geom["type_pair"][:, :, 1])  # (S, S, db//8)
-        type_emb = torch.cat([type_i_emb, type_j_emb], dim=-1)  # (S, S, db//4)
-        type_emb = type_emb.unsqueeze(0).expand(B, S, S, -1)  # (B, S, S, db//4)
-        
-        # Events
-        if self.event_proj is not None:
-            event_emb = self.event_proj(event_features)  # (B, S, S, event_dim)
         else:
-            event_emb = torch.zeros(B, S, S, 0, device=stab_xy.device)
-        
-        # ---- Concatenate all features ----
-        features = torch.cat([
-            dist_emb,      # (B, S, S, db//4)
-            coords_emb,    # (B, S, S, coord_dim)
-            offset_emb,    # (B, S, S, db//8)
-            type_emb,      # (B, S, S, db//4)
-            event_emb,     # (B, S, S, event_dim)
-        ], dim=-1)  # (B, S, S, input_dim)
-        
-        # ---- Process through ResNet ----
-        x = features
-        for layer in self.resnet_layers:
-            residual = x
-            x = layer(x)
-            x = x + residual  # Residual connection
-        
-        # ---- Final projection ----
-        bias = self.final_proj(x)  # (B, S, S, db)
-        
-        return bias
+            x = torch.cat([dist_emb, coords_emb, offset_emb, type_emb], dim=-1)
+
+        # Unified ResNet — geometry and events interact across all layers
+        for layer in self.resnet:
+            x = x + layer(x)
+
+        return self.final_proj(x)  # (B, S, S, db)
+
+
+# ============================================================
+# AttentionBiasProviderSplit — our efficiency-optimised variant
+# ============================================================
+
+class AttentionBiasProviderSplit(nn.Module):
+    """
+    Split attention bias provider: separate geometry and interaction paths.
+
+    Geometry path (geom_resnet_layers, default 2):
+        Encodes the fixed spatial layout (distances, coordinates, types) into
+        (S, S, db). No batch dimension. During eval this result is cached per
+        physical patch (patch_id) so the geometry ResNet never reruns. During
+        training it is recomputed each step so geometry weights receive gradients.
+
+    Interaction path (interaction_resnet_layers, default 8):
+        Runs on (B, S, S, db) every cycle step. Takes the sum of the geometry
+        bias and the projected event features, then processes them jointly so the
+        network can learn non-linear geometry-event interactions (e.g. "close
+        together AND both fired").
+
+    This preserves the expressiveness of the unified approach at lower cost:
+    the expensive deep ResNet operates on (S, S, *) without a batch dimension
+    for geometry, and on (B, S, S, db) — already at the final dimensionality —
+    for interactions.
+
+    Controlled by ModelConfig.geom_resnet_layers and interaction_resnet_layers.
+    """
+
+    def __init__(
+        self,
+        *,
+        db: int,
+        max_dist: int = 8,
+        geom_resnet_layers: int = 2,
+        interaction_resnet_layers: int = 8,
+        indicator_features: int = 7,
+        coord_scale: float = 0.5,
+    ):
+        super().__init__()
+        self.db = db
+        self.max_dist = max_dist
+        self.coord_scale = coord_scale
+        self.indicator_features = indicator_features
+
+        # Geometry embeddings
+        self.dist_emb = nn.Embedding(max_dist + 1, db // 4)
+        self.type_emb = nn.Embedding(2, db // 8)
+        self.coord_proj = nn.Linear(4, db // 4)
+        self.offset_proj = nn.Linear(2, db // 8)
+
+        # geom_dim = db//4 + db//4 + db//8 + db//4 = 7*db//8
+        geom_dim = (db // 4) + (db // 4) + (db // 8) + (db // 4)
+        self.geom_dim = geom_dim
+
+        # Geometry ResNet: small, runs on (S, S, geom_dim) — no batch, no events.
+        # 1-2 layers is sufficient; geometry is fixed and shallow to encode.
+        self.geom_resnet = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(geom_dim, db),
+                nn.LayerNorm(db),
+                nn.GELU(),
+                nn.Linear(db, geom_dim),
+            )
+            for _ in range(geom_resnet_layers)
+        ])
+        self.geom_proj = nn.Linear(geom_dim, db)
+
+        # Event projection: indicator_features -> db (matches geometry output space)
+        self.event_proj = (
+            nn.Linear(indicator_features, db)
+            if indicator_features > 0 else None
+        )
+
+        # Interaction ResNet: runs on (B, S, S, db) every cycle step.
+        # Sees geometry + events in the same db-dimensional space and learns
+        # their non-linear interactions. Deeper than geometry ResNet because
+        # this is where the meaningful learning happens.
+        self.interaction_resnet = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(db, db),
+                nn.LayerNorm(db),
+                nn.GELU(),
+                nn.Linear(db, db),
+            )
+            for _ in range(interaction_resnet_layers)
+        ])
+
+        # Per-patch eval cache: patch_id -> (S, S, db) geometry bias tensor.
+        # Only populated during eval. During training always recomputed for gradients.
+        self._geom_bias_cache: Dict[str, torch.Tensor] = {}
+
+    def _compute_geom_bias(self, geom: Dict[str, torch.Tensor]) -> torch.Tensor:
+        """Embed geometry features and run through the geometry ResNet. Returns (S, S, db)."""
+        dist_emb   = self.dist_emb(geom["dist"])            # (S, S, db//4)
+        coords_emb = self.coord_proj(geom["coords"])         # (S, S, db//4)
+        offset_emb = self.offset_proj(geom["offset"])        # (S, S, db//8)
+        type_emb   = torch.cat([
+            self.type_emb(geom["type_pair"][:, :, 0]),
+            self.type_emb(geom["type_pair"][:, :, 1]),
+        ], dim=-1)                                           # (S, S, db//4)
+
+        x = torch.cat([dist_emb, coords_emb, offset_emb, type_emb], dim=-1)  # (S, S, geom_dim)
+        for layer in self.geom_resnet:
+            x = x + layer(x)
+        return self.geom_proj(x)  # (S, S, db)
+
+    def forward(
+        self,
+        batch: Dict[str, torch.Tensor],
+        *,
+        S: int,
+        cycle: Optional[int] = None,
+    ) -> torch.Tensor:
+        """Returns bias (B, S, S, db)."""
+        device = next(self.parameters()).device
+        stab_xy, stab_type, patch_id = _extract_batch_geometry(batch, S, device)
+
+        # --- Geometry bias (cached during eval, recomputed during training) ---
+        cached = (
+            not self.training
+            and patch_id is not None
+            and patch_id in self._geom_bias_cache
+        )
+        if cached:
+            geom_bias = self._geom_bias_cache[patch_id]
+        else:
+            geom = _build_geometric_features(
+                stab_xy, stab_type, self.coord_scale, self.max_dist
+            )
+            geom_bias = self._compute_geom_bias(geom)  # (S, S, db)
+            if not self.training and patch_id is not None:
+                self._geom_bias_cache[patch_id] = geom_bias
+
+        B = batch["syndrome"].size(0)
+
+        # --- Event embedding (per cycle step) ---
+        if self.event_proj is not None and cycle is not None:
+            cycle_index = batch.get("cycle_index")
+            if cycle_index is not None:
+                event_features = _build_event_indicators(
+                    batch["syndrome"], cycle_index, cycle, self.indicator_features
+                )
+            else:
+                event_features = torch.zeros(
+                    B, S, S, self.indicator_features, device=device,
+                )
+            event_emb = self.event_proj(event_features.float())  # (B, S, S, db)
+        else:
+            event_emb = geom_bias.new_zeros(B, S, S, self.db)
+
+        # --- Interaction ResNet ---
+        # Geometry and events are combined in db space then processed jointly.
+        # The network can learn non-linear interactions across all layers.
+        x = geom_bias.unsqueeze(0) + event_emb  # (B, S, S, db)
+        for layer in self.interaction_resnet:
+            x = x + layer(x)
+
+        return x  # (B, S, S, db)

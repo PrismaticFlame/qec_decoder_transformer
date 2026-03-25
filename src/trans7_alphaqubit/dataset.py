@@ -104,6 +104,7 @@ class SyndromeDataset(Dataset):
         labels: np.ndarray,
         layout: Dict[str, Any],
         measurements: Optional[np.ndarray] = None,
+        patch_id: Optional[str] = None,
     ):
         super().__init__()
 
@@ -190,6 +191,10 @@ class SyndromeDataset(Dataset):
         else:
             self.stab_xy = None
 
+        # Patch identity string, e.g. "3_5" for the patch at row 3, col 5 on the chip.
+        # Used by AttentionBiasProvider to cache geometry bias per physical patch.
+        self.patch_id: Optional[str] = patch_id
+
     @staticmethod
     def _build_cycle_index(
         stab_id: torch.Tensor, cycle_id: torch.Tensor
@@ -257,6 +262,8 @@ class SyndromeDataset(Dataset):
         }
         if self.stab_xy is not None:
             batch["stab_xy"] = self.stab_xy
+        if self.patch_id is not None:
+            batch["patch_id"] = self.patch_id
         return batch
 
 
