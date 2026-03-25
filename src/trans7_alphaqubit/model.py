@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import math
 from typing import Dict, List, Optional, Tuple
+import inspect
 
 import torch
 import torch.nn as nn
@@ -554,6 +555,7 @@ class AlphaQubitModel(nn.Module):
         self.use_next_stab = use_next_stab
         self.next_head = NextStabPredictor(d_model) if use_next_stab else None
         self.bias_provider = bias_provider
+        self._bias_takes_cycle = "cycle" in inspect.signature(self.bias_provider.forward).parameters
         self.d_model = d_model
         self.use_grad_checkpoint = use_grad_checkpoint
 
@@ -727,8 +729,7 @@ class AlphaQubitModel(nn.Module):
             stab_ids_t = stab_id[idx[t]]  # (S,) — stab ID for each token in cycle t
 
             # Call bias provider (supports cycle-aware providers)
-            fwd = self.bias_provider.forward
-            if "cycle" in fwd.__code__.co_varnames:
+            if self._bias_takes_cycle:
                 Bbias = self.bias_provider(batch, S=S, cycle=t)
             else:
                 Bbias = self.bias_provider(batch, S=S)
