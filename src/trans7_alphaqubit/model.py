@@ -62,8 +62,7 @@ class StabilizerEmbedding(nn.Module):
 
     def __init__(self, num_stab: int, d_model: int = 256):
         super().__init__()
-        self.proj_meas = nn.Linear(1, d_model)
-        self.proj_event = nn.Linear(1, d_model)
+        self.proj_input = nn.Linear(2, d_model)  # projects [meas, event] jointly
         self.stab_emb = nn.Embedding(num_stab, d_model)
         self.res1 = _EmbedResBlock(d_model)
         self.res2 = _EmbedResBlock(d_model)
@@ -79,8 +78,7 @@ class StabilizerEmbedding(nn.Module):
             stab_ids = stab_ids.unsqueeze(0).expand(B, S)
 
         h = (
-            self.proj_meas(meas.unsqueeze(-1))
-            + self.proj_event(event.unsqueeze(-1))
+            self.proj_input(torch.stack([meas.float(), event.float()], dim=-1))
             + self.stab_emb(stab_ids)
         )
         h = self.res1(h)
@@ -105,8 +103,7 @@ class FinalRoundEmbedding(nn.Module):
 
     def __init__(self, num_stab: int, d_model: int = 256):
         super().__init__()
-        self.proj_meas = nn.Linear(1, d_model)
-        self.proj_event = nn.Linear(1, d_model)
+        self.proj_input = nn.Linear(2, d_model)  # projects [meas, event] jointly
         self.stab_emb = nn.Embedding(num_stab, d_model)
 
     def forward(
@@ -120,8 +117,7 @@ class FinalRoundEmbedding(nn.Module):
             stab_ids = stab_ids.unsqueeze(0).expand(B, S)
 
         return (
-            self.proj_meas(meas.unsqueeze(-1))
-            + self.proj_event(event.unsqueeze(-1))
+            self.proj_input(torch.stack([meas.float(), event.float()], dim=-1))
             + self.stab_emb(stab_ids)
         )
 
@@ -715,8 +711,12 @@ class AlphaQubitModel(nn.Module):
             S_seq[:, -1] = torch.where(on_mask, final_emb, off_basis_emb)
 
         # Zero out padded positions
-        pad_mask_btsd = pad_mask.unsqueeze(0).unsqueeze(-1).expand(B, T, S, D)
-        S_seq = S_seq * pad_mask_btsd.float()
+        # pad_mask_btsd = pad_mask.unsqueeze(0).unsqueeze(-1).expand(B, T, S, D)
+        # S_seq = S_seq * pad_mask_btsd.float()
+
+        # instead of doing an expand, materialize, and then multiply, we 
+        # broadcast (1, T, S, 1) against (B, T, S, D) internally and write in place
+        S_seq.masked_fill_(~pad_mask.unsqueeze(0).unsqueeze(-1), 0.0)
 
         # Recurrent core
         X = S_seq.new_zeros((B, S, D))

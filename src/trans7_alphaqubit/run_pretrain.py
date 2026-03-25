@@ -456,6 +456,7 @@ def pretrain_single(
     model.to(device)
     print(f"  Parameters: {n_params:,}   Device: {device}")
     print(f"  Train shots: {len(train_dataset)}  Val shots: {len(val_dataset)}")
+    model = torch.compile(model, dynamic=True)
 
     run_name = f"pretrain_{bases_str.lower()}_d{distance}"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)

@@ -207,7 +207,8 @@ class ManhattanDistanceBias(nn.Module):
         if stab_xy.dim() != 2 or stab_xy.size(0) != S or stab_xy.size(1) != 2:
             raise ValueError(f"stab_xy must be (S,2), got {stab_xy.shape}")
 
-        stab_xy = stab_xy.to(next(self.parameters()).device)
+        # stab_xy = stab_xy.to(next(self.parameters()).device)
+        stab_xy = stab_xy.to(self.dist_emb.weight.device)
 
         # ---- build / reuse distance matrix ----
         if self._cached_dist is None or self._cached_dist.size(0) != S:
@@ -403,7 +404,7 @@ class AttentionBiasProviderUnified(nn.Module):
         cycle: Optional[int] = None,
     ) -> torch.Tensor:
         """Returns bias (B, S, S, db). patch_id is accepted but ignored."""
-        device = next(self.parameters()).device
+        device = self.dist_emb.weight.device
         stab_xy, stab_type, _ = _extract_batch_geometry(batch, S, device)
 
         geom = _build_geometric_features(stab_xy, stab_type, self.coord_scale, self.max_dist)
@@ -557,7 +558,7 @@ class AttentionBiasProviderSplit(nn.Module):
         cycle: Optional[int] = None,
     ) -> torch.Tensor:
         """Returns bias (B, S, S, db)."""
-        device = next(self.parameters()).device
+        device = self.dist_emb.weight.device
         stab_xy, stab_type, patch_id = _extract_batch_geometry(batch, S, device)
 
         # --- Geometry bias (cached during eval, recomputed during training) ---

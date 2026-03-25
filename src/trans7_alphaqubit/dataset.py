@@ -105,6 +105,7 @@ class SyndromeDataset(Dataset):
         layout: Dict[str, Any],
         measurements: Optional[np.ndarray] = None,
         patch_id: Optional[str] = None,
+        soft_data: bool = False,
     ):
         super().__init__()
 
@@ -151,8 +152,15 @@ class SyndromeDataset(Dataset):
                 events, layout["stab_id"], layout["cycle_id"]
             )
 
-        self.events = torch.from_numpy(events).long()  # (N, D)
-        self.meas = torch.from_numpy(meas).float()  # (N, D)
+        self.soft_data = soft_data
+        # Hard data (binary 0/1): store as int8 to save 8x memory vs int64.
+        # Soft data (IQ/LLR): store as float32. Cast to float in __getitem__ for hard.
+        if soft_data:
+            self.events = torch.from_numpy(np.asarray(events, dtype=np.float32))  # (N, D)
+            self.meas = torch.from_numpy(np.asarray(meas, dtype=np.float32))      # (N, D)
+        else:
+            self.events = torch.from_numpy(events)        # (N, D) int8
+            self.meas = torch.from_numpy(meas)            # (N, D) int8
         self.labels = torch.from_numpy(labels).float()  # (N,)
 
         # stab_type: 1=on-basis, 0=off-basis
@@ -235,8 +243,8 @@ class SyndromeDataset(Dataset):
         return self.num_shots
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
-        syndrome = self.events[idx].long()  # (D,)
-        measurements = self.meas[idx]  # (D,)
+        syndrome = self.events[idx].long()   # (D,) — int8->long for embedding index; float stays float
+        measurements = self.meas[idx].float()  # (D,) — int8->float32; float stays float
         label = self.labels[idx]  # scalar
 
         # Next-stab targets (T-1, S)
@@ -599,7 +607,7 @@ def make_loader(
     batch_size: int,
     *,
     shuffle: bool,
-    num_workers: int = 4,
+    num_workers: int = 16,
     pin_memory: bool = True,
     drop_last: bool = True,
     seed: int = 0,
