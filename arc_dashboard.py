@@ -19,6 +19,8 @@ SETUP (each laptop session):
 No extra Python dependencies — stdlib only.
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import os
@@ -219,6 +221,11 @@ def _refresh_loop(account: str | None, users: list[str], log_dir_template: str,
         if account or users:
             live_jobs.update(discover_jobs(account, users))
 
+        # Evict jobs no longer in squeue (static --jobs entries are always kept)
+        with _cache_lock:
+            for jid in [jid for jid in _cache if jid not in live_jobs]:
+                del _cache[jid]
+
         for jid, username in live_jobs.items():
             data = fetch_job_data(jid, log_dir_template, username)
             with _cache_lock:
@@ -357,9 +364,17 @@ function humanRemaining(s) {
   const dash = s.indexOf('-');
   if (dash !== -1) { days = parseInt(s); s = s.substring(dash + 1); }
   const p = s.split(':');
-  if (p.length >= 2) { hours = parseInt(p[0]); mins = parseInt(p[1]); }
+  if (p.length >= 3) {
+    // H:MM:SS
+    hours = parseInt(p[0]); mins = parseInt(p[1]);
+  } else if (p.length === 2) {
+    // MM:SS (under 1 hour) — first segment is minutes, not hours
+    mins = parseInt(p[0]);
+  }
   const totalH = days * 24 + hours + Math.round(mins / 60);
-  return days > 0 ? `~${totalH}h (${days}d ${hours}h)` : `~${totalH}h`;
+  if (days > 0)  return `~${totalH}h (${days}d ${hours}h)`;
+  if (totalH > 0) return `~${totalH}h`;
+  return `~${mins}m`;
 }
 
 function badge(state) {
