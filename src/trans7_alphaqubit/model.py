@@ -736,13 +736,16 @@ class AlphaQubitModel(nn.Module):
 
             if self.use_grad_checkpoint and self.training:
                 # Checkpoint recomputes activations on backward to save memory.
-                # stab_ids_t is not a tensor with grad, pass via closure.
-                _sids = stab_ids_t
+                # stab_ids_t passed as an explicit arg (not a closure) so that
+                # torch.compile's Dynamo tracer can track it as a proper subgraph
+                # input rather than a freevar, avoiding the lift_tracked_freevar
+                # assertion error.
                 X = grad_checkpoint(
-                    lambda _X, _tok, _B: self.core(_X, _tok, _B, stab_ids=_sids),
+                    lambda _X, _tok, _B, _sids: self.core(_X, _tok, _B, stab_ids=_sids),
                     X,
                     token_t,
                     Bbias,
+                    stab_ids_t,
                     use_reentrant=False,
                 )
             else:

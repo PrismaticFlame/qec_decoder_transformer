@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional
 
 import torch
 import torch.distributed as dist
+torch.set_float32_matmul_precision('high')
 from hyperparameters import ModelConfig, TrainConfig, pretrain_config
 from run_pretrain import (
     build_model,
@@ -181,22 +182,31 @@ def pretrain_single_ddp(
     # Build model: compile first, then wrap in DDP.
     # Compiling before DDP avoids the DDP-internal compile_fn backend which
     # causes 'int object has no attribute meta' crashes on the second forward pass.
-    model = build_model(layout, model_cfg, "x", use_full_bias=use_full_bias)
+    model = build_model(layout, model_cfg, "x", use_full_bias=use_full_bias, use_grad_checkpoint=False)
     device = torch.device(train_cfg.device)
     model.to(device)
-    # Compile before DDP — this is the required order.
-    # - dynamic=True: handles variable T (rounds) across batches without recompiling
-    #   for each new shape. Critical for curriculum training.
-    # - No mode="reduce-overhead": that mode enables CUDA Graphs, which conflict
-    #   with DDP's internal stream usage and cause asymmetric GPU crashes.
-    # - fullgraph=False (default): allows graph breaks at the Python RNN loop over T.
-    #   fullgraph=True would fail on dynamic control flow.
+    # Compile inner modules only, not the outer model.
+    #
+    # Compiling model.forward() unrolls the Python `for t in range(T)` loop into
+    # a single graph with T copies of the core ops. Each unique T (curriculum round
+    # count) produces a distinct graph and triggers a full recompilation — O(T) time
+    # and O(T) memory. At T=25 this exceeds NCCL's 10-min all-reduce timeout and
+    # causes OOM during kernel compilation.
+    #
+    # Compiling model.core and model.bias_provider directly means each is compiled
+    # once for its fixed input shape (B, S, D) / (B, S, S, db), independent of T.
+    # The Python loop calls the compiled kernel T times per step — same performance
+    # benefit, without T-dependent recompilation.
+    #
+    # DDP is applied to the outer model after inner compilation, which is correct:
+    # DDP hooks on parameters, not on compiled subgraphs.
     try:
-        model = torch.compile(model, dynamic=True)
+        model.core = torch.compile(model.core, dynamic=True)
+        model.bias_provider = torch.compile(model.bias_provider, dynamic=True)
     except Exception as e:
         if is_main:
             print(f"  WARNING: torch.compile failed ({e}), running in eager mode")
-    model = DDP(model, device_ids=[local_rank], find_unused_parameters=False, gradient_as_bucket_view=True)
+    model = DDP(model, device_ids=[local_rank], find_unused_parameters=False, gradient_as_bucket_view=False)
     
 
     n_params = sum(p.numel() for p in model.parameters())

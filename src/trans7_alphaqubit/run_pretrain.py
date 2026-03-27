@@ -254,6 +254,7 @@ def build_model(
     basis: str,
     use_full_bias: bool = True,
     max_rounds: Optional[int] = None,
+    use_grad_checkpoint: bool = True,
 ) -> AlphaQubitModel:
     distance = layout["distance"]
     d_model = model_cfg.d_model
@@ -308,7 +309,7 @@ def build_model(
         coord_to_index=coord_to_index,
         index_to_coord=index_to_coord,
         basis=basis,
-        use_grad_checkpoint=True,
+        use_grad_checkpoint=use_grad_checkpoint,
     )
     return model
 
@@ -450,13 +451,14 @@ def pretrain_single(
 
     # Build model with basis="x" as default; readout direction comes from batch basis_idx.
     # layout is layout_ref (max-round folder), so layout["num_cycles"] is already correct.
-    model = build_model(layout, model_cfg, "x", use_full_bias=use_full_bias)
+    model = build_model(layout, model_cfg, "x", use_full_bias=use_full_bias, use_grad_checkpoint=False)
     n_params = sum(p.numel() for p in model.parameters())
     device = torch.device(train_cfg.device)
     model.to(device)
     print(f"  Parameters: {n_params:,}   Device: {device}")
     print(f"  Train shots: {len(train_dataset)}  Val shots: {len(val_dataset)}")
-    model = torch.compile(model, dynamic=True)
+    model.core = torch.compile(model.core, dynamic=True)
+    model.bias_provider = torch.compile(model.bias_provider, dynamic=True)
 
     run_name = f"pretrain_{bases_str.lower()}_d{distance}"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)

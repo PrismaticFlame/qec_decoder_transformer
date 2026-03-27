@@ -613,8 +613,16 @@ def make_loader(
     seed: int = 0,
     rank: int = 0,
     world_size: int = 1,
+    prefetch_factor: int = 4,
+    persistent_workers: bool = True,
 ) -> DataLoader:
     distributed = world_size > 1
+    # prefetch_factor and persistent_workers raise ValueError when num_workers=0
+    worker_kwargs = (
+        {"prefetch_factor": prefetch_factor, "persistent_workers": persistent_workers}
+        if num_workers > 0
+        else {}
+    )
 
     if isinstance(dataset, MultiRoundDataset):
         if distributed:
@@ -635,6 +643,7 @@ def make_loader(
             batch_sampler=sampler,
             num_workers=num_workers,
             pin_memory=pin_memory,
+            **worker_kwargs,
         )
 
     if distributed:
@@ -655,6 +664,7 @@ def make_loader(
             num_workers=num_workers,
             pin_memory=pin_memory,
             drop_last=drop_last,
+            **worker_kwargs,
         )
 
     return DataLoader(
@@ -664,6 +674,7 @@ def make_loader(
         num_workers=num_workers,
         pin_memory=pin_memory,
         drop_last=drop_last,
+        **worker_kwargs,
     )
 
 
