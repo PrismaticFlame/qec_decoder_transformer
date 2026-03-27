@@ -3,7 +3,7 @@
 #SBATCH --job-name=trans7_test
 #SBATCH --account=quantum_training
 #SBATCH --time=00:30:00
-#SBATCH --partition=a100_normal_q
+#SBATCH --partition=h200_normal_q
 #SBATCH --gres=gpu:2
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
