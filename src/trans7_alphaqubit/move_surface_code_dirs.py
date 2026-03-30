@@ -47,13 +47,6 @@ def ensure_surface_code_data(data_dir: Path, dest_dir: Path) -> bool:
         print(f"    {src.name} -> {dest_dir.name}/")
         shutil.move(str(src), str(dst))
 
-    source_parents = {src.parent for src in dirs + files}
-    if dest_dir not in source_parents:
-        for parent in source_parents:
-            if parent.exists():
-                print(f"    Removing original directory: {parent}")
-                shutil.rmtree(str(parent))
-
     return True
 
 
