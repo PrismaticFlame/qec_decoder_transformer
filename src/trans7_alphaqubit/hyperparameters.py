@@ -76,8 +76,8 @@ class ModelConfig:
     #               cycle step. Uses bias_residual_layers. Slower, more expressive.
     #   "split"   — Our variant: geometry ResNet (cached) + interaction ResNet
     #               (per step). Uses geom_resnet_layers + interaction_resnet_layers.
-    # bias_mode: str = "unified"
-    bias_mode: str = "split"
+    bias_mode: str = "unified"
+    # bias_mode: str = "split"
 
     # Unified provider layer count
     bias_residual_layers: int = 8
