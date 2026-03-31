@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --acount=quantum_training
+#SBATCH --account=quantum_training
 #SBATCH --partition=h200_normal_q
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
