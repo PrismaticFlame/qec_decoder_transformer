@@ -460,6 +460,13 @@ def pretrain_single(
     model.core = torch.compile(model.core, dynamic=True)
     model.bias_provider = torch.compile(model.bias_provider, dynamic=True)
 
+    # Auto-compute pos_weight from val label balance if not already set
+    if train_cfg.logical_pos_weight is None:
+        obs_rate = float(val_dataset.labels.float().mean())
+        if 0 < obs_rate < 1:
+            train_cfg.logical_pos_weight = (1.0 - obs_rate) / obs_rate
+            print(f"  Auto pos_weight: {train_cfg.logical_pos_weight:.3f}  (obs_rate={obs_rate:.4f})")
+
     run_name = f"pretrain_{bases_str.lower()}_d{distance}"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     ckpt_path = str(checkpoint_dir / f"{run_name}.pth")

@@ -96,6 +96,9 @@ def load_checkpoint(ckpt_path: str, d_model: int, device: str,
     model_cfg.d_model = d_model
     model = build_model(layout, model_cfg, basis, use_full_bias=True)
     state = ckpt.get("model_state_dict", ckpt)
+    # torch.compile wraps submodules under _orig_mod — strip that prefix so
+    # compiled checkpoints load cleanly into an uncompiled eval model.
+    state = {k.replace("._orig_mod.", "."): v for k, v in state.items()}
     missing, unexpected = model.load_state_dict(state, strict=False)
     if missing:
         print(f"  WARNING: missing keys in state_dict: {missing[:5]}")
