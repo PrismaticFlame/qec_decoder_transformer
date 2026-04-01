@@ -218,7 +218,11 @@ def pretrain_single_ddp(
 
     # Auto-compute pos_weight from val label balance if not already set
     if train_cfg.logical_pos_weight is None:
-        obs_rate = float(val_dataset.labels.float().mean())
+        if hasattr(val_dataset, 'labels'):
+            all_labels = val_dataset.labels
+        else:  # MultiRoundDataset
+            all_labels = torch.cat([d.labels for d in val_dataset._datasets])
+        obs_rate = float(all_labels.float().mean())
         if 0 < obs_rate < 1:
             train_cfg.logical_pos_weight = (1.0 - obs_rate) / obs_rate
             if is_main:
