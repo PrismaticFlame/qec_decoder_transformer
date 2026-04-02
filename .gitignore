@@ -9,6 +9,7 @@ venv/
 
 # Data and models (too large for Git)
 data/*
+data_backup/*
 !data/.gitkeep
 !data/data_random_sample.py
 models/*

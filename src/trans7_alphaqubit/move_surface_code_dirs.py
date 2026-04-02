@@ -40,28 +40,27 @@ def ensure_surface_code_data(data_dir: Path, dest_dir: Path) -> bool:
     for src in dirs:
         dst = dest_dir / src.name
         print(f"    {src.name} -> {dest_dir.name}/")
-        shutil.move(str(src), str(dst))
+        shutil.copytree(src, dst, dirs_exist_ok=True)
 
     for src in files:
         dst = dest_dir / src.name
         print(f"    {src.name} -> {dest_dir.name}/")
-        shutil.move(str(src), str(dst))
+        shutil.copy2(src, dst)
 
-    source_parents = {src.parent for src in dirs + files}
-    if dest_dir not in source_parents:
-        for parent in source_parents:
-            if parent.exists():
-                print(f"    Removing original directory: {parent}")
-                shutil.rmtree(str(parent))
 
     return True
 
 
 if __name__ == "__main__":
-    repo_root = Path(__file__).resolve().parents[2]
+    script_path = Path(__file__).resolve()
+    repo_root = script_path.parents[2]
     data_dir  = repo_root / "data"
     dest_dir  = data_dir  / "trans7_data"
-
+    
+    print("FILE:", script_path)
+    print("REPO ROOT:", repo_root)
+    print("DATA DIR:", data_dir)
+    print("DEST DIR:", dest_dir)
     if ensure_surface_code_data(data_dir, dest_dir):
         print(f"Done. Surface code data is in {dest_dir}")
     else:
