@@ -104,6 +104,8 @@ class SyndromeDataset(Dataset):
         labels: np.ndarray,
         layout: Dict[str, Any],
         measurements: Optional[np.ndarray] = None,
+        patch_id: Optional[str] = None,
+        soft_data: bool = False,
     ):
         super().__init__()
 
@@ -150,8 +152,15 @@ class SyndromeDataset(Dataset):
                 events, layout["stab_id"], layout["cycle_id"]
             )
 
-        self.events = torch.from_numpy(events).long()  # (N, D)
-        self.meas = torch.from_numpy(meas).float()  # (N, D)
+        self.soft_data = soft_data
+        # Hard data (binary 0/1): store as int8 to save 8x memory vs int64.
+        # Soft data (IQ/LLR): store as float32. Cast to float in __getitem__ for hard.
+        if soft_data:
+            self.events = torch.from_numpy(np.asarray(events, dtype=np.float32))  # (N, D)
+            self.meas = torch.from_numpy(np.asarray(meas, dtype=np.float32))      # (N, D)
+        else:
+            self.events = torch.from_numpy(events)        # (N, D) int8
+            self.meas = torch.from_numpy(meas)            # (N, D) int8
         self.labels = torch.from_numpy(labels).float()  # (N,)
 
         # stab_type: 1=on-basis, 0=off-basis
@@ -189,6 +198,10 @@ class SyndromeDataset(Dataset):
             self.stab_xy = torch.stack([x0, y0], dim=-1)  # (S, 2)
         else:
             self.stab_xy = None
+
+        # Patch identity string, e.g. "3_5" for the patch at row 3, col 5 on the chip.
+        # Used by AttentionBiasProvider to cache geometry bias per physical patch.
+        self.patch_id: Optional[str] = patch_id
 
     @staticmethod
     def _build_cycle_index(
@@ -230,8 +243,8 @@ class SyndromeDataset(Dataset):
         return self.num_shots
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
-        syndrome = self.events[idx].long()  # (D,)
-        measurements = self.meas[idx]  # (D,)
+        syndrome = self.events[idx].long()   # (D,) — int8->long for embedding index; float stays float
+        measurements = self.meas[idx].float()  # (D,) — int8->float32; float stays float
         label = self.labels[idx]  # scalar
 
         # Next-stab targets (T-1, S)
@@ -257,6 +270,8 @@ class SyndromeDataset(Dataset):
         }
         if self.stab_xy is not None:
             batch["stab_xy"] = self.stab_xy
+        if self.patch_id is not None:
+            batch["patch_id"] = self.patch_id
         return batch
 
 
@@ -592,14 +607,22 @@ def make_loader(
     batch_size: int,
     *,
     shuffle: bool,
-    num_workers: int = 4,
+    num_workers: int = 16,
     pin_memory: bool = True,
     drop_last: bool = True,
     seed: int = 0,
     rank: int = 0,
     world_size: int = 1,
+    prefetch_factor: int = 4,
+    persistent_workers: bool = True,
 ) -> DataLoader:
     distributed = world_size > 1
+    # prefetch_factor and persistent_workers raise ValueError when num_workers=0
+    worker_kwargs = (
+        {"prefetch_factor": prefetch_factor, "persistent_workers": persistent_workers}
+        if num_workers > 0
+        else {}
+    )
 
     if isinstance(dataset, MultiRoundDataset):
         if distributed:
@@ -620,6 +643,7 @@ def make_loader(
             batch_sampler=sampler,
             num_workers=num_workers,
             pin_memory=pin_memory,
+            **worker_kwargs,
         )
 
     if distributed:
@@ -640,6 +664,7 @@ def make_loader(
             num_workers=num_workers,
             pin_memory=pin_memory,
             drop_last=drop_last,
+            **worker_kwargs,
         )
 
     return DataLoader(
@@ -649,6 +674,7 @@ def make_loader(
         num_workers=num_workers,
         pin_memory=pin_memory,
         drop_last=drop_last,
+        **worker_kwargs,
     )
 
 

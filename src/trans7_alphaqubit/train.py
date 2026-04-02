@@ -1,6 +1,7 @@
 # train.py - Training loop for trans7 (AlphaQubit on Google hardware data)
 from __future__ import annotations
 
+import contextlib
 import csv
 import math
 from dataclasses import asdict
@@ -263,50 +264,80 @@ def train(
 
         lr = apply_lr_schedule(optimizer, step, cfg)
 
-        # Fetch batch
-        try:
-            batch = next(train_iter)
-        except StopIteration:
-            if get_next_train_chunk is not None:
-                next_chunk = get_next_train_chunk(cur_bs)
-                if next_chunk is not None:
-                    cur_train_dataset = next_chunk
-                    train_loader = make_loader(
-                        cur_train_dataset,
-                        cur_bs,
-                        shuffle=True,
-                        **loader_kwargs,
-                    )
-            train_iter = iter(train_loader)
-            batch = next(train_iter)
+        accum_steps = max(1, getattr(cfg, "grad_accum_steps", 1))
+        # DDP wraps the model in a module with a .no_sync() context manager that
+        # suppresses gradient AllReduce on intermediate micro-steps. On single-GPU
+        # or non-DDP runs, fall back to a no-op context.
+        is_ddp = isinstance(model, torch.nn.parallel.DistributedDataParallel)
 
-        batch = {
-            k: v.to(device, non_blocking=True) if torch.is_tensor(v) else v
-            for k, v in batch.items()
-        }
+        def fetch_batch():
+            """Fetch the next batch, handling dataset exhaustion and chunk rotation."""
+            nonlocal train_iter, cur_train_dataset, train_loader
+            try:
+                return next(train_iter)
+            except StopIteration:
+                if get_next_train_chunk is not None:
+                    next_chunk = get_next_train_chunk(cur_bs)
+                    if next_chunk is not None:
+                        cur_train_dataset = next_chunk
+                        train_loader = make_loader(
+                            cur_train_dataset,
+                            cur_bs,
+                            shuffle=True,
+                            **loader_kwargs,
+                        )
+                train_iter = iter(train_loader)
+                return next(train_iter)
 
         optimizer.zero_grad(set_to_none=True)
+        accum_loss = 0.0
+        accum_loss_stats: Optional[Dict] = None
 
-        with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
-            out = model(batch)
-            logical_logits = out["logical_logits"]
-            logical_labels = batch.get("logical_labels", batch.get("label"))
-            pred_stabs = out.get("pred_stabs")
-            true_stabs = batch.get("true_stabs")
-            token_mask = batch.get("token_mask")
+        for micro in range(accum_steps):
+            batch = fetch_batch()
+            batch = {
+                k: v.to(device, non_blocking=True) if torch.is_tensor(v) else v
+                for k, v in batch.items()
+            }
 
-            loss, loss_stats = criterion(
-                logical_logits=logical_logits,
-                logical_labels=logical_labels,
-                pred_stabs=pred_stabs,
-                true_stabs=true_stabs,
-                token_mask=token_mask,
-                step=step,
-                total_steps=cfg.num_steps,
+            is_last_micro = (micro == accum_steps - 1)
+            # Suppress gradient AllReduce on all but the final micro-step so
+            # DDP only communicates once per optimizer step, not once per batch.
+            sync_ctx = (
+                contextlib.nullcontext()
+                if (not is_ddp or is_last_micro)
+                else model.no_sync()
             )
 
-        scaler.scale(loss).backward()
+            with sync_ctx:
+                with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
+                    out = model(batch)
+                    logical_logits = out["logical_logits"]
+                    logical_labels = batch.get("logical_labels", batch.get("label"))
+                    pred_stabs = out.get("pred_stabs")
+                    true_stabs = batch.get("true_stabs")
+                    token_mask = batch.get("token_mask")
 
+                    loss, loss_stats = criterion(
+                        logical_logits=logical_logits,
+                        logical_labels=logical_labels,
+                        pred_stabs=pred_stabs,
+                        true_stabs=true_stabs,
+                        token_mask=token_mask,
+                        step=step,
+                        total_steps=cfg.num_steps,
+                    )
+                    # Divide by accum_steps so the effective gradient is the
+                    # average over all micro-batches, not the sum.
+                    loss = loss / accum_steps
+
+                scaler.scale(loss).backward()
+
+            accum_loss += loss.detach().float()
+            if accum_loss_stats is None:
+                accum_loss_stats = loss_stats
+
+        # Gradient clipping and optimizer step fire once per optimizer step.
         if cfg.grad_clip_norm > 0:
             scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip_norm)
@@ -317,13 +348,16 @@ def train(
         if ema is not None:
             ema.update(model)
 
+        loss = accum_loss          # use for logging below
+        loss_stats = accum_loss_stats  # type: ignore[assignment]
+
         # Logging (rank 0 only)
         if is_main and step % cfg.log_every == 0:
             log = {
                 "step": step,
                 "lr": lr,
                 "batch_size": cur_bs,
-                "loss": float(loss.detach().cpu()),
+                "loss": float(loss) if not torch.is_tensor(loss) else float(loss.detach().cpu()),
                 "loss_main": float(loss_stats["logical_loss"].cpu()),
                 "loss_next": float(
                     loss_stats["stab_loss"].cpu()

@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional
 
 import torch
 import torch.distributed as dist
+torch.set_float32_matmul_precision('high')
 from hyperparameters import ModelConfig, TrainConfig, pretrain_config
 from run_pretrain import (
     build_model,
@@ -181,12 +182,31 @@ def pretrain_single_ddp(
     # Build model: compile first, then wrap in DDP.
     # Compiling before DDP avoids the DDP-internal compile_fn backend which
     # causes 'int object has no attribute meta' crashes on the second forward pass.
-    model = build_model(layout, model_cfg, "x", use_full_bias=use_full_bias)
+    model = build_model(layout, model_cfg, "x", use_full_bias=use_full_bias, use_grad_checkpoint=False)
     device = torch.device(train_cfg.device)
     model.to(device)
-    # torch.compile disabled — re-enable once DDP+compile interaction is resolved
-    # model = torch.compile(model, mode="reduce-overhead")
-    model = DDP(model, device_ids=[local_rank], find_unused_parameters=False, gradient_as_bucket_view=True)
+    # Compile inner modules only, not the outer model.
+    #
+    # Compiling model.forward() unrolls the Python `for t in range(T)` loop into
+    # a single graph with T copies of the core ops. Each unique T (curriculum round
+    # count) produces a distinct graph and triggers a full recompilation — O(T) time
+    # and O(T) memory. At T=25 this exceeds NCCL's 10-min all-reduce timeout and
+    # causes OOM during kernel compilation.
+    #
+    # Compiling model.core and model.bias_provider directly means each is compiled
+    # once for its fixed input shape (B, S, D) / (B, S, S, db), independent of T.
+    # The Python loop calls the compiled kernel T times per step — same performance
+    # benefit, without T-dependent recompilation.
+    #
+    # DDP is applied to the outer model after inner compilation, which is correct:
+    # DDP hooks on parameters, not on compiled subgraphs.
+    try:
+        model.core = torch.compile(model.core, dynamic=True)
+        model.bias_provider = torch.compile(model.bias_provider, dynamic=True)
+    except Exception as e:
+        if is_main:
+            print(f"  WARNING: torch.compile failed ({e}), running in eager mode")
+    model = DDP(model, device_ids=[local_rank], find_unused_parameters=False, gradient_as_bucket_view=False)
     
 
     n_params = sum(p.numel() for p in model.parameters())
@@ -195,6 +215,18 @@ def pretrain_single_ddp(
             f"  Parameters: {n_params:,}   Device: {device}   World size: {world_size}"
         )
         print(f"  Train shots: {len(train_dataset)}  Val shots: {len(val_dataset)}")
+
+    # Auto-compute pos_weight from val label balance if not already set
+    if train_cfg.logical_pos_weight is None:
+        if hasattr(val_dataset, 'labels'):
+            all_labels = val_dataset.labels
+        else:  # MultiRoundDataset
+            all_labels = torch.cat([d.labels for d in val_dataset._datasets])
+        obs_rate = float(all_labels.float().mean())
+        if 0 < obs_rate < 1:
+            train_cfg.logical_pos_weight = (1.0 - obs_rate) / obs_rate
+            if is_main:
+                print(f"  Auto pos_weight: {train_cfg.logical_pos_weight:.3f}  (obs_rate={obs_rate:.4f})")
 
     run_name = f"pretrain_{bases_str.lower()}_d{distance}"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)

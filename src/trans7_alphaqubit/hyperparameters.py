@@ -69,8 +69,22 @@ class ModelConfig:
 
     # Attention bias
     bias_dim: int = 48
-    bias_residual_layers: int = 8
     indicator_features: int = 7
+
+    # Which bias provider to use:
+    #   "unified" — AlphaQubit-faithful: geometry + events processed jointly every
+    #               cycle step. Uses bias_residual_layers. Slower, more expressive.
+    #   "split"   — Our variant: geometry ResNet (cached) + interaction ResNet
+    #               (per step). Uses geom_resnet_layers + interaction_resnet_layers.
+    bias_mode: str = "unified"
+    # bias_mode: str = "split"
+
+    # Unified provider layer count
+    bias_residual_layers: int = 8
+
+    # Split provider layer counts
+    geom_resnet_layers: int = 2         # geometry only, no batch dim, cached
+    interaction_resnet_layers: int = 8  # geometry + events jointly, per step
 
     # Readout ResNet
     readout_resnet_layers: int = 16
@@ -96,6 +110,11 @@ class TrainConfig:
     batch_init: int = 256
     batch_final: int = 1024
     batch_change_step: int = 800_000  # Scaling: 8e5
+
+    # Gradient accumulation: number of micro-steps per optimizer step.
+    # Effective batch size = batch_size * grad_accum_steps * world_size.
+    # 1 = disabled (default, matches current behaviour).
+    grad_accum_steps: int = 1
 
     # LR decay schedule (piecewise constant)
     lr_decay_factor: float = 0.7

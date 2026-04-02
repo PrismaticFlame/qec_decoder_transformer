@@ -152,6 +152,39 @@ docker-compose exec transformer jupyter notebook --ip=0.0.0.0 --port=8888 --no-b
 This starts the server that you will access! However, what the h*ll do you do now? Well, you'll head to your browser and access the server there at this URL: `http://localhost:8888`.
 All things you do in the Jupyter Notebook in the server will be reflect in your files on your puter, so don't worry about syncing between the server and your machine.
 
+# ARC Setup
+
+In the root of repo is a file named `total_setup.py` which will be an easy setup to getting things working on the ARC. The file requires 2 things to run:
+
+1. Automatic SSH Login to the ARC setup
+2. Data (by Tzu-Chen) in the Data directory.
+
+If these two conditions are satisfied, then you are all set to go!
+
+## What it does
+
+1. This script will check your connection to the ARC, and once that is confirmed will find what files you need on the ARC based on a preset list of files. Depending on files are found on the ARC, or no files found at all, it copy all trans7_alphaqubit files to the ARC. 
+
+2. It will also copy all data to the ARC that was created by Tzu-Chen. If the files have not be placed correctly or been randomly sampled, it will handle that as well.
+
+3. Finally, if there are already files on the ARC, specific files will be prioritized and kept so they are not overwritten or deleted. These files include logs (.err, .out, gpu_usage_*.out) and checkpoints of previously trained models.
+
+## Commands
+
+The command should be simple as
+
+```Python
+python total_setup.py --vtusername USERNAME --arc-host tinkercliffs2.arc.vt.edu
+```
+
+If you are scared and don't want to do anything before knowing what will happen, you can add the `--dry-run` flag at the end of the command to see what will happen instead of it actually happening.
+
+In the event that there is a major change to the model or structure of the trans7_alphqbuit directory, Chris will include in the commit the words "UPDATE REQUIRED", to which you will include the `--update` flag in the command, so it will look like:
+
+```Python
+python total_setup.py --vtusername USERNAME --arc-host tinkercliffs2.arc.vt.edu --update
+```
+
 # Team Members
 - Tzu-Chen Chiu
 - Arjun Sivakumar (Git push check)

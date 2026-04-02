@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import math
 from typing import Dict, List, Optional, Tuple
+import inspect
 
 import torch
 import torch.nn as nn
@@ -61,8 +62,7 @@ class StabilizerEmbedding(nn.Module):
 
     def __init__(self, num_stab: int, d_model: int = 256):
         super().__init__()
-        self.proj_meas = nn.Linear(1, d_model)
-        self.proj_event = nn.Linear(1, d_model)
+        self.proj_input = nn.Linear(2, d_model)  # projects [meas, event] jointly
         self.stab_emb = nn.Embedding(num_stab, d_model)
         self.res1 = _EmbedResBlock(d_model)
         self.res2 = _EmbedResBlock(d_model)
@@ -78,8 +78,7 @@ class StabilizerEmbedding(nn.Module):
             stab_ids = stab_ids.unsqueeze(0).expand(B, S)
 
         h = (
-            self.proj_meas(meas.unsqueeze(-1))
-            + self.proj_event(event.unsqueeze(-1))
+            self.proj_input(torch.stack([meas.float(), event.float()], dim=-1))
             + self.stab_emb(stab_ids)
         )
         h = self.res1(h)
@@ -104,8 +103,7 @@ class FinalRoundEmbedding(nn.Module):
 
     def __init__(self, num_stab: int, d_model: int = 256):
         super().__init__()
-        self.proj_meas = nn.Linear(1, d_model)
-        self.proj_event = nn.Linear(1, d_model)
+        self.proj_input = nn.Linear(2, d_model)  # projects [meas, event] jointly
         self.stab_emb = nn.Embedding(num_stab, d_model)
 
     def forward(
@@ -119,8 +117,7 @@ class FinalRoundEmbedding(nn.Module):
             stab_ids = stab_ids.unsqueeze(0).expand(B, S)
 
         return (
-            self.proj_meas(meas.unsqueeze(-1))
-            + self.proj_event(event.unsqueeze(-1))
+            self.proj_input(torch.stack([meas.float(), event.float()], dim=-1))
             + self.stab_emb(stab_ids)
         )
 
@@ -152,16 +149,21 @@ class MHAttentionWithBias(nn.Module):
     def __init__(self, d_d: int, d_attn: int, d_mid: int, db: int, H: int):
         super().__init__()
         self.H = H
+        self.d_attn = d_attn
         self.Wb = nn.Linear(db, H, bias=False)
-        self.heads = nn.ModuleList(
-            [AttentionWithBiasHead(d_d, d_attn, d_mid) for _ in range(H)]
-        )
+        self.Wq = nn.Linear(d_d, H * d_attn, bias=True)
+        self.Wk = nn.Linear(d_d, H * d_attn, bias=True)
+        self.Wv = nn.Linear(d_d, H * d_mid, bias=True)
         self.Wo = nn.Linear(H * d_mid, d_d, bias=True)
 
-    def forward(self, X: torch.Tensor, bias: torch.Tensor) -> torch.Tensor:
-        Bprime = self.Wb(bias).permute(0, 3, 1, 2)  # (B, H, S, S)
-        Ys = [self.heads[h](X, Bprime[:, h])[0] for h in range(self.H)]
-        return self.Wo(torch.cat(Ys, dim=-1))
+    def forward(self, X, bias):
+        B, L, _ = X.shape
+        Bp = self.Wb(bias).permute(0, 3, 1, 2)  # (B, H, S, S)
+        Q = self.Wq(X).view(B, L, self.H, self.d_attn).transpose(1, 2)
+        K = self.Wk(X).view(B, L, self.H, self.d_attn).transpose(1, 2)
+        V = self.Wv(X).view(B, L, self.H, -1).transpose(1, 2)
+        Y = F.scaled_dot_product_attention(Q, K, V, attn_mask=Bp)
+        return self.Wo(Y.transpose(1, 2).contiguous().view(B, L, -1))
 
 
 # ============================================================
@@ -549,6 +551,7 @@ class AlphaQubitModel(nn.Module):
         self.use_next_stab = use_next_stab
         self.next_head = NextStabPredictor(d_model) if use_next_stab else None
         self.bias_provider = bias_provider
+        self._bias_takes_cycle = "cycle" in inspect.signature(self.bias_provider.forward).parameters
         self.d_model = d_model
         self.use_grad_checkpoint = use_grad_checkpoint
 
@@ -708,8 +711,12 @@ class AlphaQubitModel(nn.Module):
             S_seq[:, -1] = torch.where(on_mask, final_emb, off_basis_emb)
 
         # Zero out padded positions
-        pad_mask_btsd = pad_mask.unsqueeze(0).unsqueeze(-1).expand(B, T, S, D)
-        S_seq = S_seq * pad_mask_btsd.float()
+        # pad_mask_btsd = pad_mask.unsqueeze(0).unsqueeze(-1).expand(B, T, S, D)
+        # S_seq = S_seq * pad_mask_btsd.float()
+
+        # instead of doing an expand, materialize, and then multiply, we 
+        # broadcast (1, T, S, 1) against (B, T, S, D) internally and write in place
+        S_seq.masked_fill_(~pad_mask.unsqueeze(0).unsqueeze(-1), 0.0)
 
         # Recurrent core
         X = S_seq.new_zeros((B, S, D))
@@ -722,21 +729,23 @@ class AlphaQubitModel(nn.Module):
             stab_ids_t = stab_id[idx[t]]  # (S,) — stab ID for each token in cycle t
 
             # Call bias provider (supports cycle-aware providers)
-            fwd = self.bias_provider.forward
-            if "cycle" in fwd.__code__.co_varnames:
+            if self._bias_takes_cycle:
                 Bbias = self.bias_provider(batch, S=S, cycle=t)
             else:
                 Bbias = self.bias_provider(batch, S=S)
 
             if self.use_grad_checkpoint and self.training:
                 # Checkpoint recomputes activations on backward to save memory.
-                # stab_ids_t is not a tensor with grad, pass via closure.
-                _sids = stab_ids_t
+                # stab_ids_t passed as an explicit arg (not a closure) so that
+                # torch.compile's Dynamo tracer can track it as a proper subgraph
+                # input rather than a freevar, avoiding the lift_tracked_freevar
+                # assertion error.
                 X = grad_checkpoint(
-                    lambda _X, _tok, _B: self.core(_X, _tok, _B, stab_ids=_sids),
+                    lambda _X, _tok, _B, _sids: self.core(_X, _tok, _B, stab_ids=_sids),
                     X,
                     token_t,
                     Bbias,
+                    stab_ids_t,
                     use_reentrant=False,
                 )
             else:

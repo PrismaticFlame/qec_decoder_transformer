@@ -3,7 +3,7 @@
 #SBATCH --job-name=trans7_test
 #SBATCH --account=quantum_training
 #SBATCH --time=00:30:00
-#SBATCH --partition=a100_normal_q
+#SBATCH --partition=h200_normal_q
 #SBATCH --gres=gpu:2
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
@@ -91,7 +91,7 @@ python -V
 # 1) Install dependencies (skipped if already installed)
 ################################################################################
 
-cd /home/${USER}/src/trans7_alphaqubit_ckpt
+cd /home/${USER}/src/trans7_alphaqubit
 
 if [ ! -f "$ENV_PREFIX/.deps_installed" ]; then
   python -m pip install --upgrade pip wheel setuptools
@@ -149,10 +149,10 @@ torchrun \
   --eval_every "${EVAL_EVERY}" \
   --d_model "${D_MODEL}" \
   --data_dir "$LOCAL_DATA_DIR" \
-  --checkpoint_dir "/home/${USER}/src/trans7_alphaqubit_ckpt/checkpoints/test" \
+  --checkpoint_dir "/home/${USER}/src/trans7_alphaqubit/checkpoints/test" \
   ${USE_WANDB}
 
 kill $GPU_MONITOR_PID 2>/dev/null || true
 
 echo "===== Smoke test finished at $(date) ====="
-echo "Checkpoints written to: /home/${USER}/src/trans7_alphaqubit_ckpt/checkpoints/test"
+echo "Checkpoints written to: /home/${USER}/src/trans7_alphaqubit/checkpoints/test"
