@@ -1,3 +1,4 @@
+from __future__ import annotations
 
 # imports
 import argparse
@@ -157,7 +158,7 @@ def _data_check(username: str, host: str):
          "-o", "ConnectTimeout=10",
          "-o", "ControlPath=none",
          f"{username}@{host}",
-         "COUNT=$(find ~/src/data/trans7_data -type d -name 'surface_code_b*' 2>/dev/null | wc -l); HAS_H5=$(test -f ~/src/data/trans7_data/pretrain.h5 && echo 1 || echo 0); echo $COUNT $HAS_H5"],
+         "COUNT=$(find ~/data/trans7_data -type d -name 'surface_code_b*' 2>/dev/null | wc -l); HAS_H5=$(test -f ~/data/trans7_data/pretrain.h5 && echo 1 || echo 0); echo $COUNT $HAS_H5"],
          check=True,
          capture_output=True,
          text=True
@@ -171,6 +172,10 @@ def _data_check(username: str, host: str):
     if (count == 130 and has_h5 == 1):
         print("Status:", out)
         print("Data present, continuing")
+        return 1
+    elif (has_h5 == 1):
+        print("Status:", out)
+        print("surface_code_b*'s not present, .h5 is. Moving on.")
         return 1
     else:
         print(f"DATA INCOMPLETE: {count}/130 dirs, pretrain.h5={'yes' if has_h5 else 'no'}")
@@ -521,7 +526,7 @@ def copy_execution(manifest: dict, username: str, host: str, dry_run: bool = Fal
         "arc_monitor":  f"{username}@{host}:~/src/",
     }
 
-    exclude = ["--exclude=__pycache__", "--exclude=*.pyc", "--exclude=.git"]
+    exclude = ["--exclude=__pycache__", "--exclude=*.pyc", "--exclude=.git", "--exclude=*.pth"]
 
     for key, dest in dest_map.items():
         if key not in manifest:
@@ -617,7 +622,7 @@ def main():
         quit()
 
     repo_root = _find_repo_root()
-    _slurm_template_force(repo_root)
+    # _slurm_template_force(repo_root)
     
     status = {
         "trans7":         trans7_status,
