@@ -468,8 +468,8 @@ def pretrain_single(
             all_labels = torch.cat([d.labels for d in val_dataset._datasets])
         obs_rate = float(all_labels.float().mean())
         if 0 < obs_rate < 1:
-            train_cfg.logical_pos_weight = (1.0 - obs_rate) / obs_rate
-            print(f"  Auto pos_weight: {train_cfg.logical_pos_weight:.3f}  (obs_rate={obs_rate:.4f})")
+            train_cfg.logical_pos_weight = 5.0 * ((1.0 - obs_rate) / obs_rate)
+            print(f"  Auto pos_weight: {train_cfg.logical_pos_weight:.3f}  (obs_rate={obs_rate:.4f} - 5x emphasis)")
 
     run_name = f"pretrain_{bases_str.lower()}_d{distance}"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
