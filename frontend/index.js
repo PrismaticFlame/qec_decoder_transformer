@@ -10,6 +10,6 @@ function changeSpan() {
 }
 
 console.log(testVal)
-console.log("updated")
+console.log("updated p2")
 
 // API call to get data based on button

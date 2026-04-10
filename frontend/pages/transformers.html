@@ -10,11 +10,17 @@
   </head>
   <body>
     <main>
-        <h1>Welcome to My Website p2</h1>  
-        <button onclick="changeSpan()">Change test text</button>
-        <p>Test: <span id="test"></span></p>
-        <button onclick="window.location=`${window.location.origin}/pages/transformers.html`">Click me</button>
+        <h1>This is the future transformers page</h1>
+        <button id="switchVersion"></button>
+        <div>
+            <canvas id="myChart"></canvas>
+        </div>
+
+        
+
     </main>
-    <script src="index.js"></script>
+    <script src="//d3js.org/d3.v3.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="transformers.js"></script>
   </body>
 </html>
