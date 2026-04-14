@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="X-UA-Compatible" content="ie=edge">
     <title>Transformers</title>
-    <!-- <link rel="stylesheet" href="./style.css"> -->
+    <link rel="stylesheet" href="../style.css">
     <link rel="icon" href="./favicon.ico" type="image/x-icon">
   </head>
   <body>
@@ -18,12 +18,19 @@
           <button id="v6-button">V6</button>
         </div>
 
+        <h2><span id="summary-version">All</span>: Short summary</h2>
+        <div id="summary"></div>
         <div>
           <button id="x-button">X</button>
           <button id="z-button">Z</button>
         </div>
         <div>
-            <canvas id="transformerChart"></canvas>
+            <canvas id="transformer-chart"></canvas>
+            <!-- Add dropdown box for table + fix scrolling-->
+             <div class="my_scroll_div">
+                <table id="transformer-table"></table>
+             </div>
+            
         </div>
 
         
