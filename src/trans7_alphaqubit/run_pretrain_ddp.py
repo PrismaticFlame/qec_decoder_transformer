@@ -216,17 +216,8 @@ def pretrain_single_ddp(
         )
         print(f"  Train shots: {len(train_dataset)}  Val shots: {len(val_dataset)}")
 
-    # Auto-compute pos_weight from val label balance if not already set
-    if train_cfg.logical_pos_weight is None:
-        if hasattr(val_dataset, 'labels'):
-            all_labels = val_dataset.labels
-        else:  # MultiRoundDataset
-            all_labels = torch.cat([d.labels for d in val_dataset._datasets])
-        obs_rate = float(all_labels.float().mean())
-        if 0 < obs_rate < 1:
-            train_cfg.logical_pos_weight = 5.0 * (1.0 - obs_rate) / obs_rate
-            if is_main:
-                print(f"  Auto pos_weight: {train_cfg.logical_pos_weight:.3f}  (obs_rate={obs_rate:.4f}, 5x emphasis)")
+    # No pos_weight: AlphaQubit uses plain BCE. The obs_rate imbalance (~0.36)
+    # is mild enough that the model handles it without reweighting.
 
     run_name = f"pretrain_{bases_str.lower()}_d{distance}"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)

@@ -401,8 +401,11 @@ class ReadoutResNet(nn.Module):
         self.grid_w = int(gj.max().item()) + 1 if num_stab > 0 else distance + 1
 
         self.P = nn.Parameter(torch.zeros(d_model))
+        # Stride-1 3×3 conv: local spatial aggregation with no downsampling.
+        # Keeps all grid positions intact so directional mean-pool gets full resolution.
+        # padding=1 keeps H×W unchanged (same-padding for 3×3 kernel).
         self.spatial_conv = nn.Conv2d(
-            d_model, d_model, kernel_size=2, stride=2, padding=0
+            d_model, d_model, kernel_size=3, stride=1, padding=1
         )
         self.dim_reduce = nn.Conv2d(d_model, readout_dim, kernel_size=1)
         self.res_blocks = nn.ModuleList(

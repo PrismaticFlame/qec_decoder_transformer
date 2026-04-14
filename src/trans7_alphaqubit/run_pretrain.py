@@ -208,18 +208,18 @@ def build_conv_blocks(
             stab_y_all[sid] = y_coords[i]
             stab_found[sid] = True
 
-    # Convert quantized coordinates to integer grid indices.
-    # Use coord_quant as the grid step, so each unique position gets a unique cell.
-    q = layout.get("coord_quant", 0.5)
-    stab_x = stab_x_all
-    stab_y = stab_y_all
-    x_q = np.round(stab_x / q).astype(np.int32)
-    y_q = np.round(stab_y / q).astype(np.int32)
-    # Shift to zero-based indices
-    x_q -= x_q.min()
-    y_q -= y_q.min()
-    H = int(x_q.max()) + 1
-    W = int(y_q.max()) + 1
+    # Convert coordinates to compact integer grid indices by mapping each unique
+    # coordinate value to a consecutive index 0, 1, 2, ...
+    # This is robust to any coordinate scale (e.g. AlphaQubit data uses spacing=4,
+    # not 0.5, so the old coord_quant=0.5 approach inflated the grid by 8x).
+    unique_x = np.unique(stab_x_all)
+    unique_y = np.unique(stab_y_all)
+    x_to_idx = {float(v): i for i, v in enumerate(unique_x)}
+    y_to_idx = {float(v): i for i, v in enumerate(unique_y)}
+    x_q = np.array([x_to_idx[float(stab_x_all[k])] for k in range(num_stab)], dtype=np.int32)
+    y_q = np.array([y_to_idx[float(stab_y_all[k])] for k in range(num_stab)], dtype=np.int32)
+    H = len(unique_x)
+    W = len(unique_y)
 
     coord_to_index = {}
     index_to_coord = []
@@ -460,16 +460,8 @@ def pretrain_single(
     model.core = torch.compile(model.core, dynamic=True)
     model.bias_provider = torch.compile(model.bias_provider, dynamic=True)
 
-    # Auto-compute pos_weight from val label balance if not already set
-    if train_cfg.logical_pos_weight is None:
-        if hasattr(val_dataset, 'labels'):
-            all_labels = val_dataset.labels
-        else:  # MultiRoundDataset
-            all_labels = torch.cat([d.labels for d in val_dataset._datasets])
-        obs_rate = float(all_labels.float().mean())
-        if 0 < obs_rate < 1:
-            train_cfg.logical_pos_weight = 5.0 * ((1.0 - obs_rate) / obs_rate)
-            print(f"  Auto pos_weight: {train_cfg.logical_pos_weight:.3f}  (obs_rate={obs_rate:.4f} - 5x emphasis)")
+    # No pos_weight: AlphaQubit uses plain BCE. The obs_rate imbalance (~0.36)
+    # is mild enough that the model handles it without reweighting.
 
     run_name = f"pretrain_{bases_str.lower()}_d{distance}"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -577,16 +569,7 @@ def main():
     data_root = (script_dir / args.data_dir).resolve()
     checkpoint_dir = (script_dir / args.checkpoint_dir).resolve()
 
-    # Ensure surface code data is in the expected directory, moving it if needed.
-    from move_surface_code_dirs import ensure_surface_code_data
-
     repo_root = script_dir.parents[1]
-    if not ensure_surface_code_data(repo_root / "data", data_root):
-        print(
-            f"ERROR: No surface_code_b* directories found under {repo_root / 'data'}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
 
     # If pretrain.h5 doesn't exist yet, build it now before training starts.
     h5_path = data_root / "pretrain.h5"
