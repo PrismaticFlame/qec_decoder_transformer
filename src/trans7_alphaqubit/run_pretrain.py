@@ -559,6 +559,8 @@ def main():
     parser.add_argument("--num_steps", type=int, default=1_000_000)
     parser.add_argument("--batch_size", type=int, default=256)
     parser.add_argument("--lr", type=float, default=None)
+    parser.add_argument("--optimizer", type=str, default=None,
+                        help="Optimizer override: 'lion' or 'adamw'. Default: from TrainConfig (lion).")
     parser.add_argument("--d_model", type=int, default=256)
     parser.add_argument("--eval_every", type=int, default=15_000)
     parser.add_argument("--use_wandb", action="store_true")
@@ -603,6 +605,8 @@ def main():
         cfg.eval_every = args.eval_every
         if args.lr is not None:
             cfg.lr = args.lr
+        if args.optimizer is not None:
+            cfg.optimizer = args.optimizer
 
         model_cfg = ModelConfig()
         model_cfg.d_model = args.d_model
