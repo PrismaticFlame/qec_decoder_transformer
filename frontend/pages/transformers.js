@@ -111,23 +111,30 @@ function makeGraphData(myData) {
 function makeTable() {
     var tableEle = document.getElementById("transformer-table")
     tableEle.innerHTML = ""
+
+    // Header row
+    var tHead = document.createElement("thead")
     var headers = document.createElement("tr")
-    headers.innerHTML = "<th>Steps</th>"
+    headers.innerHTML = "<td>Steps</td>"
     for (var i = 0; i < graphData.datasets.length; i++) {
-        headers.innerHTML += `<th>${graphData.datasets[i].label}</th>`
+        headers.innerHTML += `<td>${graphData.datasets[i].label}</td>`
     }
-    tableEle.appendChild(headers)
+    tHead.appendChild(headers)
+    tableEle.appendChild(tHead)
+
+    // Data rows
+    var tBody = document.createElement("tbody")
     for (var i = 0; i < graphData.labels.length; i++) {
         var dataRow = document.createElement("tr")
         dataRow.innerHTML = `<td>${graphData.labels[i]}</td>`
         for (var j = 0; j < graphData.datasets.length; j++) {
             const dataValue = graphData.datasets[j].data[i]
-            console.log(dataValue)
-            console.log(typeof(dataValue))
             dataRow.innerHTML += `<td>${Number(dataValue).toFixed(2)}</td>`
         }
-        tableEle.appendChild(dataRow)
+        tBody.appendChild(dataRow)
     }
+
+    tableEle.appendChild(tBody)
 }
 
 function makeChart() {
