@@ -25,12 +25,18 @@
           <button id="z-button">Z</button>
         </div>
         <div>
+            <!-- Connect no-data div to loading -->
+            <div id="no-data">
+              <p>No data avaiable</p>
+            </div>
             <canvas id="transformer-chart"></canvas>
-            <!-- Add dropdown box for table + fix scrolling-->
-            <table id="transformer-table" class="transformer-table">
-            </table>
-            
+            <details id="details">
+              <summary>Show raw metrics</summary>
+              <table id="transformer-table"></table>
+            </details>
         </div>
+        <!-- Add tabs for the different sections -->
+         <table id="overview-table"></table>
 
     </main>
     <script src="//d3js.org/d3.v3.min.js"></script>

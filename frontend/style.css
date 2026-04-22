@@ -1,10 +1,72 @@
-table, th, td {
-  border: 1px solid black;
-  border-collapse: collapse;
+#overview-table {
+  width: 500px
+}
+.cols-3 > tr > td {
+  width: 32%
+}
+.cols-4 > tr > td {
+  width: 24%
+}
+.cols-5 > tr > td {
+  width: 19%
+}
+.cols-6 > tr > td {
+  width: 15%
+}
+table > thead {
+  font-weight: bold;
+}
+table {
+    background-color: #aaa;
+    width:400px;
+}
+tbody {
+    background-color: #ddd;
+    height: 100px;
+    overflow: auto;
+}
+thead > tr > td {
+  /* display: flex; */
+  justify-content: center;
+  align-items: center;
+}
+td {
+    padding: 3px 10px;
+    display: inline-block;
+    /* width: 24%; */
+    box-sizing: border-box;
+    /* border: 1px solid black;
+    border-collapse: collapse; */
+}
+
+tr, tbody{
+    display:block;
 }
 
 .my_scroll_div{
     overflow-y: auto;
     max-height: 150px;
     width:max-content;
+}
+
+details {
+  border: 1px solid #aaaaaa;
+  border-radius: 4px;
+  padding: 0.5em 0.5em 0;
+  width:fit-content;
+}
+
+summary {
+  font-weight: bold;
+  margin: -0.5em -0.5em 0;
+  padding: 0.5em;
+}
+
+details[open] {
+  padding: 0.5em;
+}
+
+details[open] summary {
+  border-bottom: 1px solid #aaaaaa;
+  margin-bottom: 0.5em;
 }
