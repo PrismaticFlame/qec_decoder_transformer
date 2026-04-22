@@ -178,6 +178,8 @@ def train(
     wb_on = bool(use_wandb and wandb is not None and is_main)
     if wb_on:
         wandb.init(project="alphaqubit-trans7", name=run_name, config=asdict(cfg))
+        # Log gradient norms and weight histograms every 500 steps
+        wandb.watch(model, log="all", log_freq=500)
 
     best: Dict[str, Any] = {
         "step": -1,
