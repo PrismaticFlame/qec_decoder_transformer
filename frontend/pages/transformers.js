@@ -1,5 +1,5 @@
 import Data from "../components/Data.js"
-import {getSummary, getOverview} from "../components/comparisons.js"
+import {getSummary, getOverview, getStructure} from "../components/comparisons.js"
 
 var basis = "X"
 var version = "All"
@@ -34,8 +34,10 @@ window.onload = function() {
     document.getElementById("v3-button").addEventListener("click", function() {swapVersion("V3")})
     document.getElementById("v5-button").addEventListener("click", function() {swapVersion("V5")})
     document.getElementById("v6-button").addEventListener("click", function() {swapVersion("V6")})
-    makeTable("overview-table", getOverview(version), 5)
+    makeDetails(5)
     d3.csv(data.csv, (e) => {makeGraphData(e)})
+    document.getElementById("overview").addEventListener("click", function(e) {openTab(e, "overview-div")})
+    document.getElementById("structure").addEventListener("click", function(e) {openTab(e, "structure-div")})
 }
 
 function swapVersion(newVersion) {
@@ -71,7 +73,7 @@ function swapVersion(newVersion) {
     data = dataDict[version][basis]
 
     d3.csv(data.csv, (e) => {makeGraphData(e)})
-    makeTable("overview-table", getOverview(version),numCols)
+    makeDetails(numCols)
     document.getElementById("summary-version").innerHTML = newVersion
     document.getElementById("summary").innerHTML = getSummary(newVersion)
 }
@@ -227,4 +229,34 @@ function makeChart() {
     });
 }
 
+function makeDetails(numCols = 4) {
+    // Overview
+    makeTable("overview-table", getOverview(version), numCols)
+    
+    // Structure
+    const structure = getStructure(version)
+    makeTable("generation-table", structure[0], numCols)
+    makeTable("format-table", structure[1], numCols)
+    makeTable("input-table", structure[2], numCols)
+}
 
+function openTab(evt, cityName) {
+  // Declare all variables
+  var i, tabcontent, tablinks;
+
+  // Get all elements with class="tabcontent" and hide them
+  tabcontent = document.getElementsByClassName("tabcontent");
+  for (i = 0; i < tabcontent.length; i++) {
+    tabcontent[i].style.display = "none";
+  }
+
+  // Get all elements with class="tablinks" and remove the class "active"
+  tablinks = document.getElementsByClassName("tablinks");
+  for (i = 0; i < tablinks.length; i++) {
+    tablinks[i].className = tablinks[i].className.replace(" active", "");
+  }
+
+  // Show the current tab, and add an "active" class to the button that opened the tab
+  document.getElementById(cityName).style.display = "block";
+  evt.currentTarget.className += " active";
+}

@@ -89,20 +89,214 @@ const overviewDict = {
     ]
 }
 
+// Data input and structure
+// 1.1 Data Generation
+const generationApsect = [
+    "Noise model",
+    "Noise parameters",
+    "Typical p values",
+    "Shots",
+    "Leakage",
+    "Soft readouts (I/Q)",
+    "Cross-talk",
+]
+const generationV3 = [
+    "Stim surface_code: rotated_memory_{basis} with uniform depolarization",
+    "after_clifford_depolarization =p, before_round_data_depolarization =p, before_measure_flip_probability =p, after_reset_flip_probability =p",
+    "0.005",
+    "20,000-50,000",
+    "No",
+    "No",
+    "No"
+]
+const generationV5 = [
+    "Stim surface_code: rotated_memory_{basis} with uniform depolarization",
+    "after_clifford_depolarization =p, before_round_data_depolarization =p, before_measure_flip_probability =p, after_reset_flip_probability =p",
+    "0.005",
+    "20,000-50,000",
+    "No",
+    "No",
+    "No"
+]
+const generationV6 = [
+    "Stim surface_code: rotated_memory_{basis} with uniform depolarization",
+    "after_clifford_depolarization =p, before_round_data_depolarization =p, before_measure_flip_probability =p, after_reset_flip_probability =p",
+    "0.005",
+    "20,000",
+    "No (placeholder zeros in embedding)",
+    "No",
+    "No"
+]
+const generationAlpha = [
+    "SI1000 (Pauli noise, non-uniform strengths), Pauli+ (cross-talk, leakage, amplitude damping), DEMs (fitted to device)",
+    "SI1000: measurement noise = 5p, single-qubit/idle = p/10, 2-qubit = p. Pauli+ adds leakage channels, cross-talk unitaries",
+    "~0.001 (Pauli + tuned for Lambda ~ 4)",
+    "Up to 2.5 billion (pretrain), 10^5-10^8 (finetune)",
+    "Yes, modeleted in Pauli+ simulator (states)",
+    "Yes, 1D analogue readout with SNR and amplitude damping",
+    "Yes, Pauli-twirled correlated channels on groups of up to 4 qubits"
+]
+const generationDict = {
+    label: "Aspect",
+    labels: generationApsect,
+    datasets: [
+        {
+            label: "V3",
+            data: generationV3
+        },
+        {
+            label: "V5",
+            data: generationV5
+        },
+        {
+            label: "V6",
+            data: generationV6
+        },
+        {
+            label: "AlphaQubit (Paper)",
+            data: generationAlpha
+        }
+    ]
+}
+
+// 1.2 Data Format
+const formatField = [
+    "Primary input",
+    "Labels",
+    "Supplementary data",
+    "Layout metadata",
+]
+const formatV3 = [
+    "det_hard or det_soft (N, D)",
+    "obs (N, 2) for X and Z",
+    "None",
+    "layout.json with stab_id, cycle_id, x, y coordinates, num_detectors, distance"
+]
+const formatV5 = [
+    "det_hard or det_soft (N, D)",
+    "obs (N, 1) single basis",
+    "None",
+    "Same"
+]
+const formatV6 = [
+    "det_hard (N, D) detection events + meas_hard (N, D) measurements",
+    "obs (N, 1) single basis",
+    "meas_hard reconstructed via cumulative XOR of events per stabilizer",
+    "Same + stab_type (on-basis vs off-basis per stabilizer)"
+]
+const formatAlpha = [
+    "Detection events + measurements (soft probabilities) + leakage + leakage events",
+    "Logical error label per basis",
+    "Intermediate labels at every round (for simulated data only, not used at inference)",
+    "Per-stabilizer spatial layout, stabilizer types, circuit connectivity"
+]
+const formatDict = {
+    label: "Field",
+    labels: formatField,
+    datasets: [
+        {
+            label: "V3",
+            data: formatV3
+        },
+        {
+            label: "V5",
+            data: formatV5
+        },
+        {
+            label: "V6",
+            data: formatV6
+        },
+        {
+            label: "AlphaQubit (Paper)",
+            data: formatAlpha
+        }
+    ]
+}
+
+// 1.3 Input Representation to the Model
+const inputChannel = [
+    "Detection events",
+    "Measurements",
+    "Leakage probability",
+    "Leakage event",
+    "Stabilizer index",
+    "Cycle index"
+]
+const inputV3 = [
+    "Yes (sole input)",
+    "No (events only)",
+    "No",
+    "No",
+    "Learned embedding",
+    "Learned embedding"
+]
+const inputV5 = [
+    "Yes (sole input)",
+    "No (events only)",
+    "No",
+    "No",
+    "Learned embedding",
+    "Learned embedding"
+]
+const inputV6 = [
+    "Yes (via proj_event)",
+    "Yes (via proj_meas, cumulative XOR of events)",
+    "Placeholder zeros (via proj_leak)",
+    "Placeholder zeros (via proj_event_leak)",
+    "Learned embedding",
+    "Learned embedding",
+]
+const inputAlpha = [
+    "Yes (both hard and soft)",
+    "Yes (soft posterior probabilities, found to improve over events alone)",
+    "Yes (post2 = posterior P)",
+    "Yes (temporal difference of leakage)",
+    "Learned embedding (+ relative positional for multi-distance)",
+    "Implicit via recurrent processing"
+]
+const inputDict = {
+    label: "Channel",
+    labels: inputChannel,
+    datasets: [
+        {
+            label: "V3",
+            data: inputV3
+        },
+        {
+            label: "V5",
+            data: inputV5
+        },
+        {
+            label: "V6",
+            data: inputV6
+        },
+        {
+            label: "AlphaQubit (Paper)",
+            data: inputAlpha
+        }
+    ]
+}
+
 // Sort by version
 function getV3(dict) {
-    dict.datasets = [dict.datasets[0], dict.datasets[3]]
-    return dict
+    var copyDict = {}
+    Object.assign(copyDict, dict)
+    copyDict.datasets = [dict.datasets[0], dict.datasets[3]]
+    return copyDict
 }
 
 function getV5(dict) {
-    dict.datasets = [dict.datasets[1], dict.datasets[3]]
-    return dict
+    var copyDict = {}
+    Object.assign(copyDict, dict)
+    copyDict.datasets = [dict.datasets[1], dict.datasets[3]]
+    return copyDict
 }
 
 function getV6(dict) {
-    dict.datasets = [dict.datasets[2], dict.datasets[3]]
-    return dict
+    var copyDict = {}
+    Object.assign(copyDict, dict)
+    copyDict.datasets = [dict.datasets[2], dict.datasets[3]]
+    return copyDict
 }
 
 // Short summary
@@ -122,4 +316,48 @@ export function getOverview(version = "All") {
         default:
             return overviewDict
     }
+}
+
+// Data input and structure
+function getGeneration(version = "All") {
+    switch (version) {
+        case "V3":
+            return getV3(generationDict)
+        case "V5":
+            return getV5(generationDict)
+        case "V6":
+            return getV6(generationDict)
+        default:
+            return generationDict
+    }
+}
+
+function getFormat(version = "All") {
+    switch (version) {
+        case "V3":
+            return getV3(formatDict)
+        case "V5":
+            return getV5(formatDict)
+        case "V6":
+            return getV6(formatDict)
+        default:
+            return formatDict
+    }
+}
+
+function getInput(version = "All") {
+    switch (version) {
+        case "V3":
+            return getV3(inputDict)
+        case "V5":
+            return getV5(inputDict)
+        case "V6":
+            return getV6(inputDict)
+        default:
+            return inputDict
+    }
+}
+        
+export function getStructure(version = "All") {
+    return [getGeneration(version), getFormat(version), getInput(version)]
 }

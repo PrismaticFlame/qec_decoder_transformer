@@ -26,17 +26,31 @@
         </div>
         <div>
             <!-- Connect no-data div to loading -->
-            <div id="no-data">
-              <p>No data avaiable</p>
-            </div>
             <canvas id="transformer-chart"></canvas>
             <details id="details">
               <summary>Show raw metrics</summary>
               <table id="transformer-table"></table>
             </details>
         </div>
-        <!-- Add tabs for the different sections -->
-         <table id="overview-table"></table>
+        <!-- Fix table spacing -->
+         <div class="tab">
+          <button id="overview" class="tablinks">Overview</button>
+          <button id="structure" class="tablinks">Data Input and Structure</button>
+        </div>
+
+        <div id="overview-div" class="tabcontent">
+          <table id="overview-table"></table>
+        </div>
+
+        <div id="structure-div" class="tabcontent">
+          <h3>Data Generation</h3>
+          <table id="generation-table"></table>
+          <h3>Data Format</h3>
+          <table id="format-table"></table>
+          <h3>Input Representation to the Model</h3>
+          <table id="input-table"></table>
+        </div>
+        
 
     </main>
     <script src="//d3js.org/d3.v3.min.js"></script>
