@@ -6,53 +6,55 @@
     <meta http-equiv="X-UA-Compatible" content="ie=edge">
     <title>Transformers</title>
     <link rel="stylesheet" href="../style.css">
+    <link href="https://unpkg.com/tabulator-tables@6.4.0/dist/css/tabulator.min.css" rel="stylesheet">
     <link rel="icon" href="./favicon.ico" type="image/x-icon">
   </head>
   <body>
     <main>
-        <h1>Transformers</h1>
-        <div>
-          <button id="all-button">All</button>
-          <button id="v3-button">V3</button>
-          <button id="v5-button">V5</button>
-          <button id="v6-button">V6</button>
-        </div>
+      <h1>Transformers</h1>
+      <div>
+        <button id="all-button">All</button>
+        <button id="v3-button">V3</button>
+        <button id="v5-button">V5</button>
+        <button id="v6-button">V6</button>
+      </div>
 
-        <h2><span id="summary-version">All</span>: Short summary</h2>
-        <div id="summary"></div>
-        <div>
-          <button id="x-button">X</button>
-          <button id="z-button">Z</button>
-        </div>
-        <div>
-            <!-- Connect no-data div to loading -->
-            <canvas id="transformer-chart"></canvas>
-            <details id="details">
-              <summary>Show raw metrics</summary>
-              <table id="transformer-table"></table>
-            </details>
-        </div>
-        <!-- Fix table spacing -->
-         <div class="tab">
-          <button id="overview" class="tablinks">Overview</button>
-          <button id="structure" class="tablinks">Data Input and Structure</button>
-        </div>
+      <h2><span id="summary-version">All</span>: Short summary</h2>
+      <div id="summary"></div>
+      <div>
+        <button id="x-button">X</button>
+        <button id="z-button">Z</button>
+      </div>
+      <div>
+          <!-- Connect no-data div to loading -->
+          <canvas id="transformer-chart"></canvas>
+          <details id="details">
+            <summary>Show raw metrics</summary>
+            <div id="transformer-table"></div>
+          </details>
+      </div>
+      <!-- Fix table spacing -->
+        <div class="tab">
+        <button id="overview" class="tablinks">Overview</button>
+        <button id="structure" class="tablinks">Data Input and Structure</button>
+      </div>
 
-        <div id="overview-div" class="tabcontent">
-          <table id="overview-table"></table>
-        </div>
+      <div id="overview-div" class="tabcontent">
+        <div id="overview-table"></div>
+      </div>
 
-        <div id="structure-div" class="tabcontent">
-          <h3>Data Generation</h3>
-          <table id="generation-table"></table>
-          <h3>Data Format</h3>
-          <table id="format-table"></table>
-          <h3>Input Representation to the Model</h3>
-          <table id="input-table"></table>
-        </div>
+      <div id="structure-div" class="tabcontent">
+        <h3>Data Generation</h3>
+        <div id="generation-table"></div>
+        <h3>Data Format</h3>
+        <div id="format-table"></div>
+        <h3>Input Representation to the Model</h3>
+        <div id="input-table"></div>
+      </div>
         
 
     </main>
+    <script type="text/javascript" src="https://unpkg.com/tabulator-tables@6.4.0/dist/js/tabulator.min.js"></script>
     <script src="//d3js.org/d3.v3.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="transformers.js" type="module"></script>

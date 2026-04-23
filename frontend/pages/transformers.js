@@ -22,7 +22,13 @@ var data = dataDict[version][basis]
 const ctx = document.getElementById('transformer-chart');
 var graphData = null
 var myChart = null
-
+var tables = {
+    "transformer-table": null, 
+    "overview-table": null,
+    "generation-table": null,
+    "format-table": null,
+    "input-table": null,
+}
 
 window.onload = function() {
     document.getElementById("x-button").disabled = true
@@ -113,7 +119,7 @@ function makeGraphData(myData) {
                     data: bestLer
                 },
                 {
-                    label: 'Alpha Qubit Best Results',
+                    label: 'AlphaQubit Best Results',
                     data: Array(devLer.length).fill(data.alphaBest)
                 }
         ]}
@@ -144,7 +150,7 @@ function makeGraphData(myData) {
                     data: bestLerD5
                 },
                 {
-                    label: 'Alpha Qubit Best Results',
+                    label: 'AlphaQubit Best Results',
                     data: Array(devLerD3.length).fill(data.alphaBest)
                 }
         ]}
@@ -152,49 +158,76 @@ function makeGraphData(myData) {
     }
     
 
-    makeTable("transformer-table", graphData, numCols)
+    makeTable("transformer-table", graphData)
     makeChart()
 }
 
-function makeTable(tableId, graphData, numCols = 4) {
-    var tableEle = document.getElementById(tableId)
-    tableEle.innerHTML = ""
-
-    // Header row
-    var tHead = document.createElement("thead")
-    tHead.classList.add(`cols-${numCols}`)
-    var headers = document.createElement("tr")
-    if (tableId == "transformer-table") {
-        headers.innerHTML = "<td>Steps</td>"
-    } else {
-        headers.innerHTML = `<td>${graphData.label}</td>`
-    }
-    
-    for (var i = 0; i < graphData.datasets.length; i++) {
-        headers.innerHTML += `<td>${graphData.datasets[i].label}</td>`
-    }
-    tHead.appendChild(headers)
-    tableEle.appendChild(tHead)
-
-    // Data rows
-    var tBody = document.createElement("tbody")
-    tBody.classList.add(`cols-${numCols}`)
-    for (var i = 0; i < graphData.labels.length; i++) {
-        var dataRow = document.createElement("tr")
-        dataRow.innerHTML = `<td>${graphData.labels[i]}</td>`
-        for (var j = 0; j < graphData.datasets.length; j++) {
-            const dataValue = graphData.datasets[j].data[i]
-            if(isNaN(dataValue)) {
-                dataRow.innerHTML += `<td>${dataValue}</td>`
-            } else {
-                dataRow.innerHTML += `<td>${Number(dataValue).toFixed(2)}</td>`
-            }
-            
+function colsToRows(myDict) {
+    var tableData = []
+    for (var i = 0; i <= myDict.labels.length; i++) {
+        var row = {}
+        row.id = i
+        if (myDict.labels[i] == undefined) {
+            break
         }
-        tBody.appendChild(dataRow)
+        if (myDict.label == undefined) {
+            row["steps"] = myDict.labels[i]
+        } else {
+            row[myDict.label] = myDict.labels[i]
+        }
+        
+        for (var j = 0; j < myDict.datasets.length; j++) {
+            row[myDict.datasets[j].label] = myDict.datasets[j].data[i]
+        }
+        tableData.push(row)
+        
     }
+    return tableData
+}
 
-    tableEle.appendChild(tBody)
+function defineDataCols(myDict) {
+    var cols = []
+    if (myDict.label == undefined) {
+        var row = {title: "Steps", field: "steps", minWidth: 75}
+        cols.push(row)
+    } else {
+        var row = {title: myDict.label, field: myDict.label}
+        cols.push(row)
+    }
+    for (var i = 0; i < myDict.datasets.length; i++) {
+        if (myDict.datasets[i] == undefined) {
+            break
+        }
+        var row = {title: myDict.datasets[i].label, field: myDict.datasets[i].label, minWidth: 100}
+        cols.push(row)
+    }
+    return cols
+}
+
+function makeTable(tableId, graphData) {
+    if (tables[tableId] != null) {
+        tables[tableId].destroy()
+    }
+    var data = colsToRows(graphData)
+    var cols = defineDataCols(graphData)
+    var tableParams = {
+        data: data, //assign data to table
+        layout:"fitColumns", //fit columns to width of table (optional)
+        columnDefaults:{
+            tooltip:true,
+        },
+        columns: cols,
+    }
+    if (tableId == "transformer-table") {
+        tableParams.layout = "fitDataTable"
+        document.getElementById(tableId).style.removeProperty("height")
+    }
+    if (tableParams.data.length > 7) {
+        tableParams['height'] = 205
+    }
+    var table = new Tabulator(`#${tableId}`, tableParams);
+    tables[tableId] = table
+    
 }
 
 function makeChart() {
@@ -231,13 +264,13 @@ function makeChart() {
 
 function makeDetails(numCols = 4) {
     // Overview
-    makeTable("overview-table", getOverview(version), numCols)
+    makeTable("overview-table", getOverview(version))
     
     // Structure
     const structure = getStructure(version)
-    makeTable("generation-table", structure[0], numCols)
-    makeTable("format-table", structure[1], numCols)
-    makeTable("input-table", structure[2], numCols)
+    makeTable("generation-table", structure[0])
+    makeTable("format-table", structure[1])
+    makeTable("input-table", structure[2])
 }
 
 function openTab(evt, cityName) {
