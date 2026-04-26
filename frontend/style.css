@@ -52,3 +52,16 @@ details[open] summary {
   border: 1px solid #ccc;
   border-top: none;
 }
+
+.codebox {
+        border:1px solid black;
+        background-color:#EEEEFF;
+        white-space: pre-line;
+        padding:10px;
+        font-size:0.9em;
+        display: inline-block;
+}
+
+code, pre {
+  white-space: pre;
+}

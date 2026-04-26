@@ -37,6 +37,7 @@
         <div class="tab">
         <button id="overview" class="tablinks">Overview</button>
         <button id="structure" class="tablinks">Data Input and Structure</button>
+        <button id="architecture" class="tablinks">Model Architecture</button>
       </div>
 
       <div id="overview-div" class="tabcontent">
@@ -50,6 +51,28 @@
         <div id="format-table"></div>
         <h3>Input Representation to the Model</h3>
         <div id="input-table"></div>
+        <p>The AlphaQubit paper found that providing both measurements and events (rather than just events) improves performance, because measurements have a more uniform distribution and preserve asymmetry information about |0> vs |1> states (lost after XOR to events). Trans6 is the first local implementation to adopt this dual-input approach.</p>
+      </div>
+
+      <div id="architecture-div" class="tabcontent">
+        <h3>Stabilizer Embedding</h3>
+        <div id="stabilizer-table"></div>
+        <h3>Syndrome Transformer (RNN Core)</h3>
+        <p>The core recurrent block is structurally identical across Trans3/5/6. AlphaQubit uses the same design in JAX. The pseudocode is given by Algorithm 5 (Supplementary Information, 41586_2024_8148_MOESM1_ESM.pdf), which calls Algorithms 1-4.</p>
+        <pre class="codebox"><code>Algorithm 5 - RNNCore (per error-correction round):
+  X = (X + S_token) / sqrt(2)       # combine hidden state + new embedding
+  for each layer l = 0 .. L-1:
+    X = X + MHAttentionWithBias(LN(X), B)       # Alg 2 (calls Alg 1 per head)
+    X = X + GatedDenseBlock(LN(X))              # Alg 3
+    X = ScatteringResidualConvBlock(X)          # Alg 4 (no outer residual)
+        </code></pre>
+        <div id="syndrome-table"></div>
+        <h3>Attention Bias</h3>
+        <div id="attention-table"></div>
+        <h3>Readout Network</h3>
+        <div id="readout-table"></div>
+        <h3>Auxiliary Tasks</h3>
+        <div id="auxiliary-table"></div>
       </div>
         
 

@@ -1,5 +1,5 @@
 import Data from "../components/Data.js"
-import {getSummary, getOverview, getStructure} from "../components/comparisons.js"
+import {getSummary, getOverview, getStructure, getArchitecture} from "../components/comparisons.js"
 
 var basis = "X"
 var version = "All"
@@ -9,9 +9,11 @@ const v6_x_data = new Data("../data/v6_x_d3_r6_eval.csv", "X", 3, 6, 50000)
 const v6_z_data = new Data("../data/v6_z_d3_d5_r6_r10_eval.csv", "Z", 3, 6, 50000, 5, 10)
 const x_data = new Data("../data/x_d3_r6_eval.csv", "X", 3, 6, 500)
 const z_data = new Data("../data/z_d3_r6_eval.csv", "Z", 3, 6, 50000)
+const all_z_data = new Data("../data/all_z_eval.csv", "Z", 3, 6, 50000, 5, 10)
+const all_x_data = new Data("../data/all_x_eval.csv", "X", 3, 5, 50000)
 
 const dataDict = {
-    'All': {'X': x_data, 'Z': z_data}, 
+    'All': {'X': all_x_data, 'Z': all_z_data}, 
     'V3': {'X': x_data, 'Z': z_data},
     'V5': {'X': v5_x_data, 'Z': v5_z_data},
     'V6': {'X': v6_x_data, 'Z': v6_z_data},
@@ -40,46 +42,42 @@ window.onload = function() {
     document.getElementById("v3-button").addEventListener("click", function() {swapVersion("V3")})
     document.getElementById("v5-button").addEventListener("click", function() {swapVersion("V5")})
     document.getElementById("v6-button").addEventListener("click", function() {swapVersion("V6")})
-    makeDetails(5)
+    makeDetails()
     d3.csv(data.csv, (e) => {makeGraphData(e)})
     document.getElementById("overview").addEventListener("click", function(e) {openTab(e, "overview-div")})
     document.getElementById("structure").addEventListener("click", function(e) {openTab(e, "structure-div")})
+    document.getElementById("architecture").addEventListener("click", function(e) {openTab(e, "architecture-div")})
 }
 
 function swapVersion(newVersion) {
     document.getElementById(`${newVersion.toLowerCase()}-button`).disabled = true
     version = newVersion
-    var numCols = 5
     switch (newVersion) {
         case "All":
             document.getElementById("v3-button").disabled = false
             document.getElementById("v5-button").disabled = false
             document.getElementById("v6-button").disabled = false
-            numCols = 5
             break
         case "V3":
             document.getElementById("all-button").disabled = false
             document.getElementById("v5-button").disabled = false
             document.getElementById("v6-button").disabled = false
-            numCols = 3
             break
         case "V5":
             document.getElementById("v3-button").disabled = false
             document.getElementById("all-button").disabled = false
             document.getElementById("v6-button").disabled = false
-            numCols = 3
             break
         case "V6":
             document.getElementById("v3-button").disabled = false
             document.getElementById("v5-button").disabled = false
             document.getElementById("all-button").disabled = false
-            numCols = 3
     }
 
     data = dataDict[version][basis]
 
     d3.csv(data.csv, (e) => {makeGraphData(e)})
-    makeDetails(numCols)
+    makeDetails()
     document.getElementById("summary-version").innerHTML = newVersion
     document.getElementById("summary").innerHTML = getSummary(newVersion)
 }
@@ -104,57 +102,134 @@ function swapBasis() {
 function makeGraphData(myData) {
     var numCols = 4
     if (data.d2 == 0) {
-        var steps = myData.map(function(d) {return d.step});
-        var devLer = myData.map(function(d) {return d.dev_ler})
-        var bestLer = myData.map(function(d) {return d.best_ler})
+        if (version == "All") {
+            const steps = myData.map(function(d) {return d.step});
+            const devLerV6 = myData.map(function(d) {return d.dev_ler_v6})
+            const bestLerV6 = myData.map(function(d) {return d.best_ler_v6})
+            const devLerV5 = myData.map(function(d) {return d.dev_ler_v5})
+            const bestLerV5 = myData.map(function(d) {return d.best_ler_v5})
 
-        graphData = {
-            labels: steps,
-            datasets: [{
-                    label: 'Dev ler',
-                    data: devLer,
-                },
-                {
-                    label: 'Best ler',
-                    data: bestLer
-                },
-                {
-                    label: 'AlphaQubit Best Results',
-                    data: Array(devLer.length).fill(data.alphaBest)
-                }
-        ]}
+            graphData = {
+                labels: steps,
+                datasets: [
+                    {
+                        label: 'Dev ler (V5)',
+                        data: devLerV5,
+                    },
+                    {
+                        label: 'Best ler (V5)',
+                        data: bestLerV5
+                    },
+                    {
+                        label: 'Dev ler (V6)',
+                        data: devLerV6,
+                    },
+                    {
+                        label: 'Best ler (V6)',
+                        data: bestLerV6
+                    },
+                    {
+                        label: 'AlphaQubit Best Results',
+                        data: Array(devLerV5.length).fill(data.alphaBest)
+                    }
+            ]}
+        } else {
+            var steps = myData.map(function(d) {return d.step});
+            var devLer = myData.map(function(d) {return d.dev_ler})
+            var bestLer = myData.map(function(d) {return d.best_ler})
+
+            graphData = {
+                labels: steps,
+                datasets: [{
+                        label: 'Dev ler',
+                        data: devLer,
+                    },
+                    {
+                        label: 'Best ler',
+                        data: bestLer
+                    },
+                    {
+                        label: 'AlphaQubit Best Results',
+                        data: Array(devLer.length).fill(data.alphaBest)
+                    }
+            ]}
+        }
+        
     } else {
-        var steps = myData.map(function(d) {return d.step});
-        var devLerD3 = myData.map(function(d) {return d.dev_ler_d3})
-        var bestLerD3 = myData.map(function(d) {return d.best_ler_d3})
-        var devLerD5 = myData.map(function(d) {return d.dev_ler_d5})
-        var bestLerD5 = myData.map(function(d) {return d.best_ler_d5})
+        if (version == "All") {
+            var steps = myData.map(function(d) {return d.step});
+            var devLerD3V6 = myData.map(function(d) {return d.dev_ler_d3_v6})
+            var bestLerD3V6 = myData.map(function(d) {return d.best_ler_d3_v6})
+            var devLerD5V6 = myData.map(function(d) {return d.dev_ler_d5_v6})
+            var bestLerD5V6 = myData.map(function(d) {return d.best_ler_d5_v6})
+            var devLerD3V5 = myData.map(function(d) {return d.dev_ler_d3_v5})
+            var bestLerD3V5 = myData.map(function(d) {return d.best_ler_d3_v5})
 
-        graphData = {
-            labels: steps,
-            datasets: [
-                {
-                    label: 'Dev ler (D3)',
-                    data: devLerD3,
-                },
-                {
-                    label: 'Best ler (D3)',
-                    data: bestLerD3
-                },
-                {
-                    label: 'Dev ler (D5)',
-                    data: devLerD5,
-                },
-                {
-                    label: 'Best ler (D5)',
-                    data: bestLerD5
-                },
-                {
-                    label: 'AlphaQubit Best Results',
-                    data: Array(devLerD3.length).fill(data.alphaBest)
-                }
-        ]}
-        numCols = 6
+            graphData = {
+                labels: steps,
+                datasets: [
+                    {
+                        label: 'Dev ler (V5, D3)',
+                        data: devLerD3V5,
+                    },
+                    {
+                        label: 'Best ler (V5, D3)',
+                        data: bestLerD3V5
+                    },
+                    {
+                        label: 'Dev ler (V6, D3)',
+                        data: devLerD3V6,
+                    },
+                    {
+                        label: 'Best ler (V6, D3)',
+                        data: bestLerD3V6
+                    },
+                    {
+                        label: 'Dev ler (V6, D5)',
+                        data: devLerD5V6,
+                    },
+                    {
+                        label: 'Best ler (V6, D5)',
+                        data: bestLerD5V6
+                    },
+                    {
+                        label: 'AlphaQubit Best Results',
+                        data: Array(devLerD3V5.length).fill(data.alphaBest)
+                    }
+            ]}
+        } else {
+            var steps = myData.map(function(d) {return d.step});
+            var devLerD3 = myData.map(function(d) {return d.dev_ler_d3})
+            var bestLerD3 = myData.map(function(d) {return d.best_ler_d3})
+            var devLerD5 = myData.map(function(d) {return d.dev_ler_d5})
+            var bestLerD5 = myData.map(function(d) {return d.best_ler_d5})
+
+            graphData = {
+                labels: steps,
+                datasets: [
+                    {
+                        label: 'Dev ler (D3)',
+                        data: devLerD3,
+                    },
+                    {
+                        label: 'Best ler (D3)',
+                        data: bestLerD3
+                    },
+                    {
+                        label: 'Dev ler (D5)',
+                        data: devLerD5,
+                    },
+                    {
+                        label: 'Best ler (D5)',
+                        data: bestLerD5
+                    },
+                    {
+                        label: 'AlphaQubit Best Results',
+                        data: Array(devLerD3.length).fill(data.alphaBest)
+                    }
+            ]}
+        }
+        
     }
     
 
@@ -257,12 +332,21 @@ function makeChart() {
                     }
                 }
             },
+            scales: {
+                x: {
+                    display: true,
+                },
+                y: {
+                    display: true,
+                    type: 'logarithmic',
+                }
+            }
         },
         data: graphData
     });
 }
 
-function makeDetails(numCols = 4) {
+function makeDetails() {
     // Overview
     makeTable("overview-table", getOverview(version))
     
@@ -271,6 +355,13 @@ function makeDetails(numCols = 4) {
     makeTable("generation-table", structure[0])
     makeTable("format-table", structure[1])
     makeTable("input-table", structure[2])
+
+    const architecture = getArchitecture(version)
+    makeTable("stabilizer-table", architecture[0])
+    makeTable("syndrome-table", architecture[1])
+    makeTable("attention-table", architecture[2])
+    makeTable("readout-table", architecture[3])
+    makeTable("auxiliary-table", architecture[4])
 }
 
 function openTab(evt, cityName) {
