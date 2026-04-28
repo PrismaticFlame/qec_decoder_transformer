@@ -1,5 +1,5 @@
 import Data from "../components/Data.js"
-import {getSummary, getOverview, getStructure, getArchitecture} from "../components/comparisons.js"
+import {getSummary, getOverview, getStructure, getArchitecture, getParameters} from "../components/comparisons.js"
 
 var basis = "X"
 var version = "All"
@@ -47,6 +47,7 @@ window.onload = function() {
     document.getElementById("overview").addEventListener("click", function(e) {openTab(e, "overview-div")})
     document.getElementById("structure").addEventListener("click", function(e) {openTab(e, "structure-div")})
     document.getElementById("architecture").addEventListener("click", function(e) {openTab(e, "architecture-div")})
+    document.getElementById("parameters").addEventListener("click", function(e) {openTab(e, "parameters-div")})
 }
 
 function swapVersion(newVersion) {
@@ -356,12 +357,19 @@ function makeDetails() {
     makeTable("format-table", structure[1])
     makeTable("input-table", structure[2])
 
+    // Architecture
     const architecture = getArchitecture(version)
     makeTable("stabilizer-table", architecture[0])
     makeTable("syndrome-table", architecture[1])
     makeTable("attention-table", architecture[2])
     makeTable("readout-table", architecture[3])
     makeTable("auxiliary-table", architecture[4])
+
+    // Parameters
+    const parameters = getParameters(version)
+    makeTable("model-table", parameters[0])
+    makeTable("training-table", parameters[1])
+    makeTable("convolution-table", parameters[2])
 }
 
 function openTab(evt, cityName) {

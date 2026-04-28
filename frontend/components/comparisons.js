@@ -568,7 +568,345 @@ const auxiliaryDict = {
 }
 
 // Parameters and Hyperparameters
+// 3.1 Model Parameters
+const modelParameters = [
+    "d_model",
+    "num_head (H)",
+    "key_size (d_attn)",
+    "d_min",
+    "syndrome_layers",
+    "dense_widen",
+    "conv_layers",
+    "conv_dim",
+    "bias_dm (db)",
+    "readout_resnet_layers",
+    "readout_dim",
+    "featured_embed_resnet_layers",
+    "Total params (approx)"
+]
+const modelV3Scale = [
+    "256",
+    "4",
+    "32",
+    "32",
+    "3",
+    "5",
+    "3",
+    "128",
+    "48",
+    "16",
+    "48",
+    "2",
+    "~5M (d=3)"
+]
+const modelV3Internal = [
+    "256",
+    "8",
+    "64",
+    "64",
+    "4",
+    "4",
+    "2",
+    "128/256",
+    "32",
+    "N/A (linear)",
+    "N/A",
+    "0",
+    "Varies"
+]
+const modelV5 = [
+    "128",
+    "4",
+    "32",
+    "32",
+    "3",
+    "5",
+    "3",
+    "128",
+    "48",
+    "16",
+    "48",
+    "2 (from config, but not used in embedding class)",
+    "~1-2M (d=3, d_model=128)"
+]
+const modelV6 = [
+    "256",
+    "4",
+    "32",
+    "32",
+    "3",
+    "5",
+    "3",
+    "128",
+    "48 (Manhattan only)",
+    "16",
+    "48",
+    "2 (implemented in _EmbedResBlock)",
+    "~5M (d=3)"
+]
+const modelSycamore = [
+    "320",
+    "4",
+    "32",
+    "-",
+    "-",
+    "3",
+    "5",
+    "3",
+    "160",
+    "48",
+    "16",
+    "64",
+    "2",
+    "~5.4M across all distances"
+]
+const modelScaling = [
+    "256",
+    "4",
+    "32",
+    "-",
+    "3",
+    "5",
+    "3",
+    "128",
+    "- (no attention bias in scaling)",
+    "4",
+    "32",
+    "2",
+    "~5.4M across all distances"
+]
+const modelDict = {
+    label: "Parameter",
+    labels: modelParameters,
+    datasets: [
+        {
+            label: "Trans3 (Scaling)",
+            data: modelV3Scale,
+        },
+        {
+            label: "Trans3 (Internal)",
+            data: modelV3Internal,
+        },
+        {
+            label: "Trans5",
+            data: modelV5
+        },
+        {
+            label: "Trans6",
+            data: modelV6
+        },
+        {
+            label: "AlphaQubit (Sycamore)",
+            data: modelSycamore,
+        },
+        {
+            label: "AlphaQubit (Scaling)",
+            data: modelScaling
+        }
+    ]
+    
+}
 
+// 3.2 Training Hyperparameters
+const trainingHyper = [
+    "Optimizer",
+    "Learning rate",
+    "Weight decay",
+    "Beta1, Beta2",
+    "Batch size",
+    "LR schedule",
+    "LR decay steps",
+    "Gradient clipping",
+    "EMA",
+    "Total training steps",
+    "Noise curriculum",
+    "Rounds curriculem",
+    "Next-stab weight",
+    "Loss",
+    "pos_weight"
+]
+const trainingV3 = [
+    "Lion",
+    "1.3e-4",
+    "1e-7",
+    "0.9, 0.95",
+    "256 -> 1024",
+    "Piecewise constant (0.7x at milestones)",
+    "400K, 800K, 1.6M",
+    "1.0",
+    "Yes (alpha=1e-4)",
+    "2M",
+    "Not implemented",
+    "Not implemented",
+    "0.02 (constant)",
+    "BCE with logits",
+    "Auto from data"
+]
+const trainingV5 = [
+    "Lion",
+    "1.3e-4",
+    "1e-7",
+    "128 (fixed)",
+    "Piecewise constant (0.7x at milestones)",
+    "400K, 800K, 1.6M",
+    "1.0",
+    "Yes (alpha=1e-4)",
+    "500 (default adjustable)",
+    "Not implemented",
+    "Not implemented",
+    "0.02 (cosine annealing)",
+    "BCE with logits",
+    "Auto from data"
+]
+const trainingV6 = [
+    "Lion",
+    "1.3e-4",
+    "1e-7",
+    "0.9, 0.95",
+    "256 -> 1024",
+    "Piecewise constant (0.7x at milestones)",
+    "400K, 800K, 1.6M",
+    "1.0",
+    "Yes (alpha=1e-4)",
+    "2M",
+    "Not implemented",
+    "Not implemented",
+    "0.02 (constant)",
+    "BCE with logits",
+    "Auto from data"
+]
+const trainingSycamore = [
+    "Lamb",
+    "3.46e-4 (d=3), 2.45e-4 (d=5)",
+    "1e-5 (pretrain), 0.08 (finetune, relative to pretrained weights)",
+    "0.9, 0.95 (b2 for Lamb)",
+    "256 -> 1024 (increase at 4M steps)",
+    "Piecewise constant (0.7x at milestones)",
+    "{0.8, 2, 4, 10, 20} x 10^5",
+    "Not specified",
+    "Yes (alpha=1e-4)",
+    "Up to 2B samples",
+    "Yes (scale noise from 0.5 to 1.0 during training)",
+    "Not mentioned for Sycamore",
+    "0.02",
+    "Cross-entropy",
+    "Not mentioned"
+]
+const trainingScaling = [
+    "Lion",
+    "7e-4 (d=3) to 3e-4 (d=11)",
+    "1e-7",
+    "0.9, 0.95",
+    "256-> 1024",
+    "Cosine",
+    "Cosine schedule",
+    "Not specified",
+    "Yes",
+    "Up to 2.5B samples",
+    "Yes (scale noise from 0.5 to 1.0 during training)",
+    "Yes (3 -> 6 -> 12 -> 25 rounds progressively)",
+    "0.01",
+    "Cross-entropy",
+    "Not mentioned"
+]
+const trainingDict = {
+    label: "Hyperparameter",
+    labels: trainingHyper,
+    datasets: [
+        {
+            label: "Trans3",
+            data: trainingV3,
+        },
+        {
+            label: "Trans5",
+            data: trainingV5
+        },
+        {
+            label: "Trans6",
+            data: trainingV6
+        },
+        {
+            label: "AlphaQubit (Sycamore)",
+            data: trainingSycamore,
+        },
+        {
+            label: "AlphaQubit (Scaling)",
+            data: trainingScaling
+        }
+    ]
+    
+}
+
+// 3.3 Convolution Dilations
+const convolutionDistance = [
+    "d=3",
+    "d=5",
+    "d=7",
+    "d=9",
+    "d=11"
+]
+const convolutionV3 = [
+    "[1, 1] or [1, 1, 1]",
+    "[1, 1, 1]",
+    "-",
+    "-",
+    "-"
+]
+const convolutionV5 = [
+    "[1, 1, 1]",
+    "[1, 1, 1]",
+    "-",
+    "-",
+    "-"
+]
+const convolutionV6 = [
+    "[1, 1, 1]",
+    "-",
+    "-",
+    "-",
+    "-",
+]
+const convolutionSycamore = [
+    "[1, 1, 1]",
+    "[1, 1, 2]",
+    "-",
+    "-",
+    "-"
+]
+const convolutionScaling = [
+    "[1, 2, 4]",
+    "[1, 2, 4]",
+    "[1, 2, 4]",
+    "[1, 2, 4]",
+    "[1, 2, 4]",
+]
+const convolutionDict = {
+    label: "Distance",
+    labels: convolutionDistance,
+    datasets: [
+        {
+            label: "Trans3",
+            data: convolutionV3,
+        },
+        {
+            label: "Trans5",
+            data: convolutionV5
+        },
+        {
+            label: "Trans6",
+            data: convolutionV6
+        },
+        {
+            label: "AlphaQubit (Sycamore)",
+            data: convolutionSycamore,
+        },
+        {
+            label: "AlphaQubit (Scaling)",
+            data: convolutionScaling
+        }
+    ]
+    
+}
 // ...
 
 // Sort by version
@@ -590,6 +928,22 @@ function getV6(dict) {
     var copyDict = {}
     Object.assign(copyDict, dict)
     copyDict.datasets = [dict.datasets[2], dict.datasets[3]]
+    return copyDict
+}
+
+function getCustom(dict, numDataCols = 2, col1, col2, col3 = 0, col4 = 0) {
+    var copyDict = {}
+    Object.assign(copyDict, dict)
+    switch (numDataCols) {
+        case 2:
+            copyDict.datasets = [dict.datasets[col1], dict.datasets[col2]]
+            break
+        case 3:
+            copyDict.datasets = [dict.datasets[col1], dict.datasets[col2], dict.datasets[col3]]
+            break
+        case 4:
+            copyDict.datasets = [dict.datasets[col1], dict.datasets[col2], dict.datasets[col3], dict.datasets[col4]]
+    }
     return copyDict
 }
 
@@ -724,4 +1078,48 @@ function getAuxiliary(version = "All") {
 
 export function getArchitecture(version = "All") {
     return [getStabilizer(version), getSyndrome(version), getAttention(version), getReadout(version), getAuxiliary(version)]
+}
+
+// Parameters and Hyperparameters
+function getModel(version = "All") {
+    switch (version) {
+        case "V3":
+            return getCustom(modelDict, 4, 0, 1, 4, 5)
+        case "V5":
+            return getCustom(modelDict, 3, 2, 4, 5)
+        case "V6":
+            return getCustom(modelDict, 3, 3, 4, 5)
+        default:
+            return modelDict
+    }
+}
+
+function getTraining(version = "All") {
+    switch (version) {
+        case "V3":
+            return getCustom(trainingDict, 3, 0, 3, 4)
+        case "V5":
+            return getCustom(trainingDict, 3, 1, 3, 4)
+        case "V6":
+            return getCustom(trainingDict, 3, 2, 3, 4)
+        default:
+            return trainingDict
+    }
+}
+
+function getConvolution(version = "All") {
+    switch (version) {
+        case "V3":
+            return getCustom(convolutionDict, 3, 0, 3, 4)
+        case "V5":
+            return getCustom(convolutionDict, 3, 1, 3, 4)
+        case "V6":
+            return getCustom(convolutionDict, 3, 2, 3, 4)
+        default:
+            return convolutionDict
+    }
+}
+
+export function getParameters(version = "All") {
+    return [getModel(version), getTraining(version), getConvolution(version)]
 }
