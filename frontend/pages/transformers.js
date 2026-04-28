@@ -1,5 +1,5 @@
 import Data from "../components/Data.js"
-import {getSummary, getOverview, getStructure, getArchitecture, getParameters} from "../components/comparisons.js"
+import {getSummary, getOverview, getStructure, getArchitecture, getParameters, getDifferences} from "../components/comparisons.js"
 
 var basis = "X"
 var version = "All"
@@ -50,6 +50,7 @@ window.onload = function() {
     document.getElementById("structure").addEventListener("click", function(e) {openTab(e, "structure-div")})
     document.getElementById("architecture").addEventListener("click", function(e) {openTab(e, "architecture-div")})
     document.getElementById("parameters").addEventListener("click", function(e) {openTab(e, "parameters-div")})
+    document.getElementById("differences").addEventListener("click", function(e) {openTab(e, "differences-div")})
 }
 
 function swapVersion(newVersion) {
@@ -253,6 +254,7 @@ function makeGraphData(myData) {
 
 function colsToRows(myDict) {
     var tableData = []
+    console.log(myDict)
     for (var i = 0; i <= myDict.labels.length; i++) {
         var row = {}
         row.id = i
@@ -383,6 +385,70 @@ function makeDetails() {
     makeTable("model-table", parameters[0])
     makeTable("training-table", parameters[1])
     makeTable("convolution-table", parameters[2])
+
+    const differences = getDifferences(version)
+    var changes = ""
+    switch (version) {
+        case "V3":
+            changes = "<h3>Trans3 -> Trans5 Changes</h3><ol>"
+            for (var i = 0; i < differences[0].length; i++) {
+                changes += `<li>${differences[0][i]}</li>`
+            }
+            changes += "</ol>"
+            document.getElementById("gaps").innerHTML = ""
+            break
+        case "V5":
+            changes = "<h3>Trans3 -> Trans5 Changes</h3><ol>"
+            for (var i = 0; i < differences[0].length; i++) {
+                changes += `<li>${differences[0][i]}</li>`
+            }
+            changes += "</ol><h3>Trans5 -> Trans6 Changes</h3><ol>"
+            for (var i = 0; i < differences[1].length; i++) {
+                changes += `<li>${differences[1][i]}</li>`
+            }
+            changes += "</ol>"
+            document.getElementById("gaps").innerHTML = ""
+            break
+        case "V6":
+            changes = "<h3>Trans5 -> Trans6 Changes</h3><ol>"
+            for (var i = 0; i < differences[0].length; i++) {
+                changes += `<li>${differences[0][i]}</li>`
+            }
+            changes += "</ol><h3>Trans6 -> Trans7 Changes</h3><ol>"
+            for (var i = 0; i < differences[1].length; i++) {
+                changes += `<li>${differences[1][i]}</li>`
+            }
+            changes += "</ol>"
+            document.getElementById("gaps").innerHTML = ""
+            break
+        case "V7":
+            changes = "<h3>Trans6 -> Trans7 Changes</h3><ol>"
+            for (var i = 0; i < differences[0].length; i++) {
+                changes += `<li>${differences[0][i]}</li>`
+            }
+            changes += "</ol>"
+            document.getElementById("gaps").innerHTML = "<h3>Trans7 vs AlphaQubit (Remaining Gaps)</h3><div id='gaps-table'></div>"
+            makeTable("gaps-table", differences[1])
+            break
+        default:
+            changes = "<h3>Trans3 -> Trans5 Changes</h3><ol>"
+            for (var i = 0; i < differences[0].length; i++) {
+                changes += `<li>${differences[0][i]}</li>`
+            }
+            changes += "</ol><h3>Trans5 -> Trans6 Changes</h3><ol>"
+            for (var i = 0; i < differences[1].length; i++) {
+                changes += `<li>${differences[1][i]}</li>`
+            }
+            changes += "</ol><h3>Trans6 -> Trans7 Changes</h3><ol>"
+            for (var i = 0; i < differences[1].length; i++) {
+                changes += `<li>${differences[1][i]}</li>`
+            }
+            changes += "</ol>"
+            document.getElementById("gaps").innerHTML = "<h3>Trans7 vs AlphaQubit (Remaining Gaps)</h3><div id='gaps-table'></div>"
+            makeTable("gaps-table", differences[3])
+            break
+    }
+    document.getElementById("changes").innerHTML = changes
 }
 
 function openTab(evt, cityName) {

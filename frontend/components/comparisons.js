@@ -1121,26 +1121,96 @@ const convolutionDict = {
 // Key archictectural differences
 // 4.1 Trans3 -> Trans5 Changes
 const V3V5 = [
-    "1. <b>Single-basis training</b>: Removed dual X/Z output heads. Each model trains on one basis only, matching the AlphaQubit approach where decoders are basis-specific.",
-    "2. <b>ReadoutResNet</b>: Replaced Linear(d_model, 1) with a 6-stage pipeline: scatter to 2D -> 2x2 stride-2 conv -> 1x1 dim reduction -> global mean pool -> 16 residual blocks -> Linear(readout_dim, 1).",
-    "3. <b>Reduced d_model</b>: Default 128 (down from 256) as a compromise between capacity and compute.",
-    "4. <b>Next-stab cosine annealing</b>: Auxiliary loss weight anneals from 0.02 -> 0 over training (warmup 30% of steps at full weight, then cosine decay).",
-    "5. <b>Padding strategy</b>: Changed from truncate-to-S_min to pad-to-S_max with boolean pad_mask, preserving all detector information."
+    "<b>Single-basis training</b>: Removed dual X/Z output heads. Each model trains on one basis only, matching the AlphaQubit approach where decoders are basis-specific.",
+    "<b>ReadoutResNet</b>: Replaced Linear(d_model, 1) with a 6-stage pipeline: scatter to 2D -> 2x2 stride-2 conv -> 1x1 dim reduction -> global mean pool -> 16 residual blocks -> Linear(readout_dim, 1).",
+    "<b>Reduced d_model</b>: Default 128 (down from 256) as a compromise between capacity and compute.",
+    "<b>Next-stab cosine annealing</b>: Auxiliary loss weight anneals from 0.02 -> 0 over training (warmup 30% of steps at full weight, then cosine decay).",
+    "<b>Padding strategy</b>: Changed from truncate-to-S_min to pad-to-S_max with boolean pad_mask, preserving all detector information."
 ]
 
 // 4.2 Trans5 -> Trans6 Changes
 const V5V6 = [
-    "1. <b>4-input embedding</b>: Matches AlphaQubit Extended Data Fig. 4c. Four separate linear projections for measurement, event, leakage, and leakage-event inputs, summed with stabilizer/cycle embeddings. Two residual blocks (_EmbedResBlock) after summation.",
-    "2. <b>Measurement input</b>: Pre-computes measurements from detection events via cumulative XOR per stabilizer. Provides both events AND measurements to the model (paper found this improves performance).",
-    `3. <b>Final-round handling</b>: Separate final_embed module for on-basis stabilizers in the last cycle. Off-basis stabilizers receive a single learned parameter vector (offbasis_final_emb). This matches the paper's description in "Input representation" (Extended Data Fig. 4c-d).`,
-    "4. <b>stab_type metadata</b>: Layout now tracks which stabilizers are on-basis vs off-basis, enabling the final-round treatment.",
-    "5. <b>Leakage-ready</b>: Although current data generation does not produce leakage, the embedding accepts zero-valued leakage inputs, allowing future finetuning with leakage data without architecture changes.", 
-    "6. <b>Data generation</b>: gen_basis_data.py produces both det_hard and meas_hard, deterministically seeded from (base_seed, basis, distance, p)."
+    "<b>4-input embedding</b>: Four separate linear projections for measurement, event, leakage, and leakage-event inputs, summed with stabilizer/cycle embeddings, then two residual blocks.",
+    "<b>Measurement input</b>: Pre-computes measurements from detection events via cumulative XOR per stabilizer.",
+    "<b>Final-round handling</b>: Separate final_embed module for on-basis stabilizers in the last cycle; off-basis gets offbasis_final_emb.",
+    "<b>stab_type metadata</b>: Layout tracks on-basis vs off-basis per stabilizer.",
+    "<b>Leakage-ready architecture</b>: Accepts zero-valued leakage inputs for future finetuning without architecture changes.", 
+    "<b>Separate conv weights per layer</b>: nn.ModuleList of independent conv blocks (vs. shared weights in Trans3/5)."
 ]
 
 // 4.2 Trans6 -> Trans7 Changes
+const V6V7 = [
+    "<b>Per-distance learning rates</b> (from paper Table S3): d=3 → 1.3e-4, d=5 → 1.15e-4, d=7 → 1.0e-4, d=9 → 7e-5, d=11 → 5e-5. Prior versions used a fixed 1.3e-4 regardless of distance.",
+    "<b>Per-distance dilation schedules</b> (from paper Table S4): d=3 → [1,1,1], d=5 → [1,1,2], d≥7 → [1,2,4]. Prior versions used fixed dilations that didn't follow the paper.",
+    "<b>Multi-GPU DDP training</b>: torchrun launches DistributedDataParallel across N GPUs. Gradients are synchronized via NCCL all-reduce. Batch size is set per-GPU to keep the total effective batch at 256 regardless of GPU count.",
+    "<b>Fixed Tzu-Chen dataset</b>: Training uses a reproducible fixed dataset rather than freshly generated Stim circuits. Eliminates run-to-run data variation; ensures comparability across experiments.",
+    "<b>HDF5 streaming data</b> (pretrain.h5): All 130 surface code subdirectories compressed into a single 157MB file. The ChunkedHDF5Dataset loads data in 50k-sample chunks with background prefetching, and the file is copied to node-local /tmp/ before training to eliminate network I/O overhead.",
+    "<b>Next-stab cosine annealing</b>: Restored from Trans5 (was constant in Trans6).",
+    "<b>Resume/checkpoint support</b>: _resume.pth saves optimizer momentum states, EMA state, current step, layout, and training history so jobs can be interrupted and continued exactly where they left off.",
+    "<b>Auto-requeue SLURM</b>: SLURM signal trap (--signal=B:USR1@120) automatically submits the next job 120s before the time limit, enabling seamless multi-job training runs.",
+    "<b>Mixed-basis training</b>: X and Z basis samples are trained together in the same run using torch.where for basis-conditional pooling (avoids aten.nonzero graph breaks in torch.compile).",
+]
 
 // 4.3 Trans7 -> vs AlphaQubit (Remaining Gaps)
+const gapsFeature = [
+    "Per-distance LR",
+    "Per-distance dilations",
+    "Soft I/Q readouts",
+    "Leakage simulation",
+    "Cross-talk",
+    "Two-stage training",
+    "Noise curriculum",
+    "Rounds curriculum",
+    "Multi-distance training",
+    "Ensembling",
+    "Intermediate labels",
+    "Data scale",
+    "Post-selection"
+]
+const gapsV7 = [
+    "✓ Implemented (Table S3)",
+    "✓ Implemented (Table S4)",
+    "Not implemented (hard binary only)",
+    "Placeholder zeros",
+    "Not modeled",
+    "Not implemented (pretrain only)",
+    "Not implemented",
+    "Not implemented",
+    "Not implemented (one distance per run)",
+    "Not implemented",
+    "Not used",
+    "~1M samples (streaming)",
+    "Not implemented"
+]
+const gapsAlpha = [
+    "Yes",
+    "Yes",
+    "Analogue I/Q signals with posterior probabilities",
+    "Pauli+ model with realistic leakage channels",
+    "Pauli-twirled correlated channels from CZ interactions",
+    "Pretrain on SI1000/DEM -> finetune on Pauli+/experimental",
+    "Gradually scale noise from 0.5x to 1.0x during pretrain",
+    "Train on 3 -> 6 -> 12 -> 25 rounds progressively",
+    "Single model on mixture of d=3 to d=11",
+    "15-20 independently trained models, averaged logits",
+    "Used during pretraining at every round",
+    "Up to 2.5 billion pretrain + 100M finetune per distance",
+    "Confidence-based post-selection on probabilistic output"
+]
+const gapsDict = {
+    label: "Feature",
+    labels: gapsFeature,
+    datasets: [
+        {
+            label: "Trans 7 Status",
+            data: gapsV7
+        },
+        {
+            label: "AlphaQubit Paper",
+            data: gapsAlpha
+        }
+    ]
+}
 
 // ...
 
@@ -1388,4 +1458,32 @@ function getConvolution(version = "All") {
 
 export function getParameters(version = "All") {
     return [getModel(version), getTraining(version), getConvolution(version)]
+}
+
+// Key archictectural differences
+export function getDifferences(version = "All") {
+    var differences = []
+    switch (version) {
+        case "V3":
+            differences.push(V3V5)
+            break
+        case "V5":
+            differences.push(V3V5)
+            differences.push(V5V6)
+            break
+        case "V6":
+            differences.push(V5V6)
+            differences.push(V6V7)
+            break
+        case "V7":
+            differences.push(V6V7)
+            differences.push(gapsDict)
+            break
+        default:
+            differences.push(V3V5)
+            differences.push(V5V6)
+            differences.push(V6V7)
+            differences.push(gapsDict)
+    }
+    return differences
 }
