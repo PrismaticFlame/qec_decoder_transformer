@@ -17,6 +17,7 @@
         <button id="v3-button">V3</button>
         <button id="v5-button">V5</button>
         <button id="v6-button">V6</button>
+        <button id="v7-button">V7</button>
       </div>
 
       <h2><span id="summary-version">All</span>: Short summary</h2>
@@ -42,7 +43,9 @@
       </div>
 
       <div id="overview-div" class="tabcontent">
+        <h3>Overview</h3>
         <div id="overview-table"></div>
+        <br><br><br>
       </div>
 
       <div id="structure-div" class="tabcontent">
@@ -52,14 +55,14 @@
         <div id="format-table"></div>
         <h3>Input Representation to the Model</h3>
         <div id="input-table"></div>
-        <p>The AlphaQubit paper found that providing both measurements and events (rather than just events) improves performance, because measurements have a more uniform distribution and preserve asymmetry information about |0> vs |1> states (lost after XOR to events). Trans6 is the first local implementation to adopt this dual-input approach.</p>
+        <p>The AlphaQubit paper found that providing both measurements and events (rather than just events) improves performance, because measurements have a more uniform distribution and preserve asymmetry information about |0> vs |1> states (lost after XOR to events). Trans6 is the first local implementation to adopt this dual-input approach. Trans7 carries it forward.</p>
       </div>
 
       <div id="architecture-div" class="tabcontent">
         <h3>Stabilizer Embedding</h3>
         <div id="stabilizer-table"></div>
         <h3>Syndrome Transformer (RNN Core)</h3>
-        <p>The core recurrent block is structurally identical across Trans3/5/6. AlphaQubit uses the same design in JAX. The pseudocode is given by Algorithm 5 (Supplementary Information, 41586_2024_8148_MOESM1_ESM.pdf), which calls Algorithms 1-4.</p>
+        <p>The core recurrent block is structurally identical across Trans3/5/6/7. AlphaQubit uses the same design in JAX. The pseudocode is given by <b>Algorithm 5</b> (Supplementary Information, 41586_2024_8148_MOESM1_ESM.pdf), which calls Algorithms 1-4.</p>
         <pre class="codebox"><code>Algorithm 5 - RNNCore (per error-correction round):
   X = (X + S_token) / sqrt(2)       # combine hidden state + new embedding
   for each layer l = 0 .. L-1:
@@ -74,6 +77,7 @@
         <div id="readout-table"></div>
         <h3>Auxiliary Tasks</h3>
         <div id="auxiliary-table"></div>
+        <br><br><br>
       </div>
 
       <div id="parameters-div" class="tabcontent">
@@ -83,6 +87,7 @@
         <div id="training-table"></div>
         <h3>Convolution Dilations</h3>
         <div id="convolution-table"></div>
+        <p>Trans7 is the first local version to use the paper's exact dilation values per distance. All prior versions used fixed dilations that did not follow Table S4.</p>
       </div>
         
 

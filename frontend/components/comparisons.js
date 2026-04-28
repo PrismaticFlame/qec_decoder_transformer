@@ -1,9 +1,10 @@
 // Short summary
 const summaryAll = "<p>Transformer versions 1, 2, and 4 are not included in this data. V1 was the first attempt at training, and produced no output. V2 never became a functional transformer model. V4 was functional, but was too similar to v3 to warrant its own results.</p>"
-const summaryV3 = "<p>This is the summary for V3</p>"
+const summaryV3 = "<p>Transformer version 3 does not have data available at this time.</p>"
 const summaryV5 = "<p>This is the summary for V5</p>"
 const summaryV6 = "<p>This is the summary for V6</p>"
-const summary = {"All": summaryAll, "V3": summaryV3, "V5": summaryV5, "V6": summaryV6}
+const summaryV7 = "<p>Transformer version 7 does not have data available at this time"
+const summary = {"All": summaryAll, "V3": summaryV3, "V5": summaryV5, "V6": summaryV6, "V7": summaryV7}
 
 // Overview
 const overviewProperties = [
@@ -15,6 +16,9 @@ const overviewProperties = [
     "Final-round handling",
     "Data source",
     "Training strategy",
+    "Multi-GPU support",
+    "LR per distance",
+    "Dilations per distance",
     "Tested distances",
     "Max rounds tested",
 ]
@@ -25,8 +29,11 @@ const overviewT3 = [
     "1 (syndrome value)",
     "None",
     "No special treatment",
-    "Stim cirtuit depolarizing noise",
+    "Stim cirtuit depolarizing noise (fresh)",
     "Single-stage",
+    "No",
+    "No (fixed 1.3e-4)",
+    "No (fixed)",
     "d=3, d=5",
     25,
 ]
@@ -37,8 +44,11 @@ const overviewT5 = [
     "1 (syndrome value)",
     "None",
     "No special treatment",
-    "Stim ciruit depolarizing noise",
+    "Stim cirtuit depolarizing noise (fresh)",
     "Single-stage",
+    "No",
+    "No (fixed 1.3e-4)",
+    "No (fixed)",    
     "d=3, d=5, d=7",
     "Varies"
 ]
@@ -49,10 +59,29 @@ const overviewT6 = [
     "4 (meas, event, leak, event_leak)",
     "2-layer ResNet after summation",
     "Seperate final_embed + learned off-basis vector",
-    "Stim ciruit depolarizing noise",
+    "Stim cirtuit depolarizing noise (fresh)",
     "Single-stage",
+    "No",
+    "No (fixed 1.3e-4)",
+    "No (fixed)",    
     "d3",
     6
+]
+const overviewT7 = [
+    "PyTorch",
+    "Mixed-basis (X+Z trained jointly)",
+    "ReadoutResNet",
+    "4 (meas, event, leak, event_leak)",
+    "2-layer ResNet after summation",
+    "Seperate final_embed + learned off-basis vector",
+    "Tzu-Chen fixed dataset (Stim, fixed)",
+    "Single-stage (pretrain)",
+    "Single-stage (pretrain)",
+    "Yes (DDP, torchrun)",
+    "Yes (Table S3 of paper)",
+    "Yes (Table S4 of paper)",
+    "d=3",
+    25
 ]
 const overviewAlpha = [
     "JAX / Haiku / JAXline",
@@ -63,6 +92,9 @@ const overviewAlpha = [
     "Seperate final-round embedding + off-basis embedding",
     "SI1000 + Pauli + (cross-talk, leakage, I/Q) + experimental",
     "Two-stage (pretrain on simulated + finetune on experimental)",
+    "Yes (TPU pods)",
+    "Yes (Table S3 of paper)",
+    "Yes (Table S4 of paper)",
     "d=3, 5, 7, 9, 11",
     "100,000"
 ]
@@ -83,6 +115,10 @@ const overviewDict = {
             data: overviewT6
         },
         {
+            label: "V7",
+            data: overviewT7
+        },
+        {
             label: "AlphaQubit (Paper)",
             data: overviewAlpha
         }
@@ -99,6 +135,7 @@ const generationApsect = [
     "Leakage",
     "Soft readouts (I/Q)",
     "Cross-talk",
+    "Data mutability"
 ]
 const generationV3 = [
     "Stim surface_code: rotated_memory_{basis} with uniform depolarization",
@@ -107,7 +144,8 @@ const generationV3 = [
     "20,000-50,000",
     "No",
     "No",
-    "No"
+    "No",
+    "Fresh each run"
 ]
 const generationV5 = [
     "Stim surface_code: rotated_memory_{basis} with uniform depolarization",
@@ -116,7 +154,8 @@ const generationV5 = [
     "20,000-50,000",
     "No",
     "No",
-    "No"
+    "No",
+    "Fresh each run"
 ]
 const generationV6 = [
     "Stim surface_code: rotated_memory_{basis} with uniform depolarization",
@@ -125,7 +164,18 @@ const generationV6 = [
     "20,000",
     "No (placeholder zeros in embedding)",
     "No",
-    "No"
+    "No",
+    "Fresh each run"
+]
+const generationV7 = [
+    "Same noise model, but using the fixed Tzu-Chen dataset rather than freshly generated circuits",
+    "Same as Trans3 (fixed in dataset)",
+    "0.005 (fixed in dataset)",
+    "~1M per distance (streaming from pretrain.h5)",
+    "No (placeholder zeros)",
+    "No",
+    "No",
+    "Fixed (Tzu-Chen dataset, reproducible)"
 ]
 const generationAlpha = [
     "SI1000 (Pauli noise, non-uniform strengths), Pauli+ (cross-talk, leakage, amplitude damping), DEMs (fitted to device)",
@@ -134,7 +184,8 @@ const generationAlpha = [
     "Up to 2.5 billion (pretrain), 10^5-10^8 (finetune)",
     "Yes, modeleted in Pauli+ simulator (states)",
     "Yes, 1D analogue readout with SNR and amplitude damping",
-    "Yes, Pauli-twirled correlated channels on groups of up to 4 qubits"
+    "Yes, Pauli-twirled correlated channels on groups of up to 4 qubits",
+    "Fixed (experimental + simulator)"
 ]
 const generationDict = {
     label: "Aspect",
@@ -153,6 +204,10 @@ const generationDict = {
             data: generationV6
         },
         {
+            label: "V7",
+            data: generationV7
+        },
+        {
             label: "AlphaQubit",
             data: generationAlpha
         }
@@ -164,30 +219,42 @@ const formatField = [
     "Primary input",
     "Labels",
     "Supplementary data",
+    "Storage format",
     "Layout metadata",
 ]
 const formatV3 = [
     "det_hard or det_soft (N, D)",
     "obs (N, 2) for X and Z",
     "None",
+    "Individual folder per (basis, distance, rounds, seed)",
     "layout.json with stab_id, cycle_id, x, y coordinates, num_detectors, distance"
 ]
 const formatV5 = [
     "det_hard or det_soft (N, D)",
     "obs (N, 1) single basis",
     "None",
+    "Individual folder per (basis, distance, rounds, seed)",
     "Same"
 ]
 const formatV6 = [
     "det_hard (N, D) detection events + meas_hard (N, D) measurements",
     "obs (N, 1) single basis",
     "meas_hard reconstructed via cumulative XOR of events per stabilizer",
-    "Same + stab_type (on-basis vs off-basis per stabilizer)"
+    "Individual folder per (basis, distance, rounds, seed)",
+    "Same + stab_type (on/off basis)"
+]
+const formatV7 = [
+    "det_hard (N, D) + meas_hard (N, D), stored in pretrain.h5",
+    "obs (N, 1) single basis",
+    "meas_hard reconstructed via cumulative XOR of events per stabilizer",
+    "Single pretrain.h5 HDF5 file (all 130 subdirectories compressed into 157MB)",
+    "Same as Trans6 (embedded in HDF5)"
 ]
 const formatAlpha = [
     "Detection events + measurements (soft probabilities) + leakage + leakage events",
     "Logical error label per basis",
     "Intermediate labels at every round (for simulated data only, not used at inference)",
+    "Not specified",
     "Per-stabilizer spatial layout, stabilizer types, circuit connectivity"
 ]
 const formatDict = {
@@ -205,6 +272,10 @@ const formatDict = {
         {
             label: "V6",
             data: formatV6
+        },
+        {
+            label: "V7",
+            data: formatV7
         },
         {
             label: "AlphaQubit",
@@ -246,6 +317,14 @@ const inputV6 = [
     "Learned embedding",
     "Learned embedding",
 ]
+const inputV7 = [
+    "Yes (via proj_event)",
+    "Yes (via proj_meas)",
+    "Placeholder zeros (via proj_leak)",
+    "Placeholder zeros (via proj_event_leak)",
+    "Learned embedding",
+    "Learned embedding",
+]
 const inputAlpha = [
     "Yes (both hard and soft)",
     "Yes (soft posterior probabilities, found to improve over events alone)",
@@ -269,6 +348,10 @@ const inputDict = {
         {
             label: "V6",
             data: inputV6
+        },
+        {
+            label: "V7",
+            data: inputV7
         },
         {
             label: "AlphaQubit",
@@ -301,7 +384,13 @@ const stabilizerV6 = [
     "4 (proj_meas, proj_event, proj_leak, proj_event_leak)",
     "stab_emb(i) + cycle_emb(n)",
     "2-layer residual blocks (_EmbedResBlock) after summation",
-    "Separate final_embed module; off-basis stabilizers get learned vector offbasis_final_emb"
+    "Separate final_embed module; off-basis stabilizers get offbasis_final_emb"
+]
+const stabilizerV7 = [
+    "4 (proj_meas, proj_event, proj_leak, proj_event_leak)",
+    "stab_emb(i) + cycle_emb(n)",
+    "2-layer residual blocks (_EmbedResBlock) after summation",
+    "Separate final_embed module; off-basis stabilizers get offbasis_final_emb"
 ]
 const stabilizerAlpha = [
     "4 linear projections (Extended Data Fig. 4c)",
@@ -326,6 +415,10 @@ const stabilizerDict = {
             data: stabilizerV6
         },
         {
+            label: "V7",
+            data: stabilizerV7
+        },
+        {
             label: "AlphaQubit",
             data: stabilizerAlpha
         }
@@ -339,6 +432,7 @@ const syndromeComponent = [
     "Gated dense block",
     "Convolution block",
     "Conv weight sharing",
+    "Dilation per distance",
     "Learned padding",
     "State combination"
 ]
@@ -347,7 +441,8 @@ const syndromeV3 = [
     "Alg 2: B'=W_b B, per-head Q,K,V projections, S=QK^T + B', softmax. V uses d_mid (not d_attn). Output projection: W_o(H*d_mid -> d_d)",
     "Alg 3: W_1 expands to w*d_d, split in half, GELU(a) * g, W_2 projects back to d_d",
     "Alg 4: scatter to (d+1)x(d+1) grid -> per-layer: LN -> 3x3 Conv -> GELU -> [1x1 proj if c≠d_d] -> residual -> gather",
-    "Shared across all L layers (single instance)",
+    "Shared across all L layers",
+    "Fixed (not from paper)",
     "Yes (nn.Parameter for empty grid cells)",
     "(X + S) / sqrt(2)"
 ]
@@ -356,7 +451,8 @@ const syndromeV5 = [
     "Alg 2: B'=W_b B, per-head Q,K,V projections, S=QK^T + B', softmax. V uses d_mid (not d_attn). Output projection: W_o(H*d_mid -> d_d)",
     "Alg 3: W_1 expands to w*d_d, split in half, GELU(a) * g, W_2 projects back to d_d",
     "Alg 4: scatter to (d+1)x(d+1) grid -> per-layer: LN -> 3x3 Conv -> GELU -> [1x1 proj if c≠d_d] -> residual -> gather",
-    "Shared",
+    "Shared across all L layers",
+    "Fixed (not from paper)",
     "Yes (nn.Parameter for empty grid cells)",
     "(X + S) / sqrt(2)"
 ]
@@ -365,7 +461,18 @@ const syndromeV6 = [
     "Alg 2: B'=W_b B, per-head Q,K,V projections, S=QK^T + B', softmax. V uses d_mid (not d_attn). Output projection: W_o(H*d_mid -> d_d)",
     "Alg 3: W_1 expands to w*d_d, split in half, GELU(a) * g, W_2 projects back to d_d",
     "Alg 4: scatter to (d+1)x(d+1) grid -> per-layer: LN -> 3x3 Conv -> GELU -> [1x1 proj if c≠d_d] -> residual -> gather",
-    "Separate per layer (nn.ModuleList of L independent blocks)",
+    "Separate per layer (nn.ModuleList)",
+    "Fixed (not from paper)",
+    "Yes (nn.Parameter for empty grid cells)",
+    "(X + S) / sqrt(2)"
+]
+const syndromeV7 = [
+    "3",
+    "Alg 2: B'=W_b B, per-head Q,K,V projections, S=QK^T + B', softmax. V uses d_mid (not d_attn). Output projection: W_o(H*d_mid -> d_d)",
+    "Alg 3: W_1 expands to w*d_d, split in half, GELU(a) * g, W_2 projects back to d_d",
+    "Alg 4: scatter to (d+1)x(d+1) grid -> per-layer: LN -> 3x3 Conv -> GELU -> [1x1 proj if c≠d_d] -> residual -> gather",
+    "Separate per layer (nn.ModuleList)",
+    "Per-distance from Table S4",
     "Yes (nn.Parameter for empty grid cells)",
     "(X + S) / sqrt(2)"
 ]
@@ -374,7 +481,8 @@ const syndromeAlpha = [
     "Pseudocode algorithms 1, 2", // Return and fix
     "Alg 3: W_1 expands to w*d_d, split in half, GELU(a) * g, W_2 projects back to d_d",
     "Alg 4: scatter to (d+1)x(d+1) grid -> per-layer: LN -> 3x3 Conv -> GELU -> [1x1 proj if c≠d_d] -> residual -> gather",
-    "Pseudocode ambiguous (separate weights per layer is standard)",
+    "Seperate per layer (standard)",
+    "Per-distance (Table S4)",
     "Yes (learned padding vector P)",
     "Same (scale factor 1/sqrt(2) to control magnitude)"
 ]
@@ -395,6 +503,10 @@ const syndromeDict = {
             data: syndromeV6
         },
         {
+            label: "V7",
+            data: syndromeV7
+        },
+        {
             label: "AlphaQubit",
             data: syndromeAlpha
         }
@@ -410,7 +522,7 @@ const attentionAspect = [
 const attentionV3 = [
     "ManhattanDistanceBias (simple) or AttentionBiasProvider (full)",
     "Manhattan distance between stabilizers; or spatial coords + offsets + Manhattan + same-type bit + event correlations",
-    "7 features (spatial and time-space event correlations) in full mode",
+    "7 features in full mode",
     "Yes (static part)"
 ]
 const attentionV5 = [
@@ -422,7 +534,13 @@ const attentionV5 = [
 const attentionV6 = [
     "AttentionBiasProvider (full, default)",
     "Spatial coords + offsets + Manhattan + same-type bit + event correlations (full 7-feature)",
-    "7 features (same as Trans3 full mode)",
+    "7 features",
+    "Yes (static part; dynamic event features per round)"
+]
+const attentionV7 = [
+    "AttentionBiasProvider (full, default)",
+    "Spatial coords + offsets + Manhattan + same-type bit + event correlations (full 7-feature)",
+    "7 features",
     "Yes (static part; dynamic event features per round)"
 ]
 const attentionAlpha = [
@@ -448,6 +566,10 @@ const attentionDict = {
             data: attentionV6
         },
         {
+            label: "V7",
+            data: attentionV7
+        },
+        {
             label: "AlphaQubit",
             data: attentionAlpha
         }
@@ -460,35 +582,42 @@ const readoutComponent = [
     "Spatial awareness",
     "Residual blocks",
     "Hidden dim",
-    "Output heads"
+    "Mixed-basis pooling"
 ]
 const readoutV3 = [
     "LayerNorm -> mean pool over stabilizers -> Linear(d_model, 1)",
     "No (mean pool destroys spatial info)",
     "0",
     "d_model (256)",
-    "2 (classifier_x + classifier_z)"
+    "N/A (dual head)"
 ]
 const readoutV5 = [
     "LayerNorm -> ReadoutResNet (global mean pool)",
     "Yes (scatter to 2D grid -> 2x2 conv)",
     "16 (default)",
     "readout_dim (48)",
-    "1 (single basis)"
+    "N/A (single basis)"
 ]
 const readoutV6 = [
-    "LayerNorm -> ReadoutResNet (directional pool perpendicular to logical observable)",
+    "LayerNorm -> ReadoutResNet (directional pool)",
     "Yes (scatter + conv, directional pooling matching paper)",
     "16 (default)",
     "readout_dim (48)",
-    "1 per basis (K position logits averaged, matching paper)"
+    "torch.where selects X or Z pool direction per sample"
+]
+const readoutV7 = [
+    "LayerNorm -> ReadoutResNet (directional pool)",
+    "Yes (scatter + conv, directional pooling matching paper)",
+    "16 (default)",
+    "readout_dim (48)",
+    "torch.where selects X or Z pool direction per sample"
 ]
 const readoutAlpha = [
     "Scatter to 2D -> 2x2 Conv -> dim reduction -> mean pool perpendicular to logical observables -> ResNet -> Linear",
     "Yes (scatter + conv, pooling perpendicular to logical observables)",
     "16 (Sycamore) / 4 (scaling)",
     "64 (Sycamore) / 32 (scaling)",
-    "1 per basis (d equivalent logical observable predictions averaged during training)"
+    "Seperate decoders per basis"
 ]
 const readoutDict = {
     label: "Component",
@@ -505,6 +634,10 @@ const readoutDict = {
         {
             label: "V6",
             data: readoutV6
+        },
+        {
+            label: "V7",
+            data: readoutV7
         },
         {
             label: "AlphaQubit",
@@ -538,11 +671,17 @@ const auxiliaryV6 = [
     "Not used",
     "Constant"
 ]
+const auxiliaryV7 = [
+    "Yes (linear -> GELU -> linear per stabilizer)",
+    "0.02 (with cosine annealing schedule)",
+    "Not used",
+    "Cosine annealing (warmup 30% -> anneal to 0)",
+]
 const auxiliaryAlpha = [
     "Yes (linear projection + logistic output)",
     "0.02 (slightly detracts from final performance but faster training)",
     'Used during pretraining (simulated data provides alternative "last rounds" at every step)',
-    "Not specified (constant implied)"
+    "Not specified"
 ]
 const auxiliaryDict = {
     label: "Aspect",
@@ -559,6 +698,10 @@ const auxiliaryDict = {
         {
             label: "V6",
             data: auxiliaryV6
+        },
+        {
+            label: "V7",
+            data: auxiliaryV7
         },
         {
             label: "AlphaQubit",
@@ -579,6 +722,7 @@ const modelParameters = [
     "conv_layers",
     "conv_dim",
     "bias_dm (db)",
+    "bias_residual_layers",
     "readout_resnet_layers",
     "readout_dim",
     "featured_embed_resnet_layers",
@@ -594,6 +738,7 @@ const modelV3Scale = [
     "3",
     "128",
     "48",
+    "8",
     "16",
     "48",
     "2",
@@ -609,6 +754,7 @@ const modelV3Internal = [
     "2",
     "128/256",
     "32",
+    "-",
     "N/A (linear)",
     "N/A",
     "0",
@@ -624,6 +770,7 @@ const modelV5 = [
     "3",
     "128",
     "48",
+    "8",
     "16",
     "48",
     "2 (from config, but not used in embedding class)",
@@ -638,10 +785,27 @@ const modelV6 = [
     "5",
     "3",
     "128",
-    "48 (Manhattan only)",
+    "48",
+    "8",
     "16",
     "48",
-    "2 (implemented in _EmbedResBlock)",
+    "2",
+    "~5M (d=3)"
+]
+const modelV7 = [
+    "256",
+    "4",
+    "32",
+    "32",
+    "3",
+    "5",
+    "3",
+    "128",
+    "48",
+    "8",
+    "16",
+    "48",
+    "2",
     "~5M (d=3)"
 ]
 const modelSycamore = [
@@ -655,6 +819,7 @@ const modelSycamore = [
     "3",
     "160",
     "48",
+    "8",
     "16",
     "64",
     "2",
@@ -670,6 +835,7 @@ const modelScaling = [
     "3",
     "128",
     "- (no attention bias in scaling)",
+    "-",
     "4",
     "32",
     "2",
@@ -694,6 +860,10 @@ const modelDict = {
         {
             label: "Trans6",
             data: modelV6
+        },
+        {
+            label: "Trans7",
+            data: modelV7
         },
         {
             label: "AlphaQubit (Sycamore)",
@@ -723,7 +893,8 @@ const trainingHyper = [
     "Rounds curriculem",
     "Next-stab weight",
     "Loss",
-    "pos_weight"
+    "Resume support",
+    "Multi-GPU"
 ]
 const trainingV3 = [
     "Lion",
@@ -740,23 +911,26 @@ const trainingV3 = [
     "Not implemented",
     "0.02 (constant)",
     "BCE with logits",
-    "Auto from data"
+    "No",
+    "No"
 ]
 const trainingV5 = [
     "Lion",
     "1.3e-4",
     "1e-7",
+    "0.9, 0.95",
     "128 (fixed)",
     "Piecewise constant (0.7x at milestones)",
     "400K, 800K, 1.6M",
     "1.0",
     "Yes (alpha=1e-4)",
-    "500 (default adjustable)",
-    "Not implemented",
-    "Not implemented",
+    "500 (default)",
+    "No",
+    "No",
     "0.02 (cosine annealing)",
     "BCE with logits",
-    "Auto from data"
+    "No",
+    "No"
 ]
 const trainingV6 = [
     "Lion",
@@ -773,7 +947,26 @@ const trainingV6 = [
     "Not implemented",
     "0.02 (constant)",
     "BCE with logits",
-    "Auto from data"
+    "No",
+    "No"
+]
+const trainingV7 = [
+    "Lion",
+    "Per-distance (Table S3): 1.3e-4 (d=3), 1.15e-4 (d=5), 1.0e-4 (d=7), 7e-5 (d=9), 5e-5 (d=11)",
+    "1e-7",
+    "0.9, 0.95",
+    "256 (effective, 128/GPU × 2 GPUs) -> 1024 at step 800k",
+    "Piecewise constant (0.7x at milestones)",
+    "400K, 800K, 1.6M",
+    "1.0",
+    "Yes (alpha=1e-4)",
+    "1M",
+    "No",
+    "No",
+    "0.02 (cosine annealing, warmup 30%)",
+    "BCE with logits",
+    "Yes (_resume.pth with optimizer state)",
+    "Yes (DDP, torchrun, NCCL)"
 ]
 const trainingSycamore = [
     "Lamb",
@@ -786,11 +979,12 @@ const trainingSycamore = [
     "Not specified",
     "Yes (alpha=1e-4)",
     "Up to 2B samples",
-    "Yes (scale noise from 0.5 to 1.0 during training)",
-    "Not mentioned for Sycamore",
+    "Yes",
+    "Not mentioned",
     "0.02",
     "Cross-entropy",
-    "Not mentioned"
+    "N/A",
+    "Yes (TPU)"
 ]
 const trainingScaling = [
     "Lion",
@@ -804,10 +998,11 @@ const trainingScaling = [
     "Yes",
     "Up to 2.5B samples",
     "Yes (scale noise from 0.5 to 1.0 during training)",
-    "Yes (3 -> 6 -> 12 -> 25 rounds progressively)",
+    "Yes (3 -> 6 -> 12 -> 25)",
     "0.01",
     "Cross-entropy",
-    "Not mentioned"
+    "N/A",
+    "Yes (TPU)"
 ]
 const trainingDict = {
     label: "Hyperparameter",
@@ -824,6 +1019,10 @@ const trainingDict = {
         {
             label: "Trans6",
             data: trainingV6
+        },
+        {
+            label: "Trans3",
+            data: trainingV7
         },
         {
             label: "AlphaQubit (Sycamore)",
@@ -866,12 +1065,19 @@ const convolutionV6 = [
     "-",
     "-",
 ]
+const convolutionV7 = [
+    "[1, 1, 1] (Table S4)",
+    "[1, 1, 2] (Table S4)",
+    "[1, 2, 4] (Table S4)",
+    "[1, 2, 4] (Table S4)",
+    "[1, 2, 4] (Table S4)"   
+]
 const convolutionSycamore = [
     "[1, 1, 1]",
     "[1, 1, 2]",
     "-",
     "-",
-    "-"
+    "-",
 ]
 const convolutionScaling = [
     "[1, 2, 4]",
@@ -897,6 +1103,10 @@ const convolutionDict = {
             data: convolutionV6
         },
         {
+            label: "Trans7",
+            data: convolutionV7
+        },
+        {
             label: "AlphaQubit (Sycamore)",
             data: convolutionSycamore,
         },
@@ -907,27 +1117,59 @@ const convolutionDict = {
     ]
     
 }
+
+// Key archictectural differences
+// 4.1 Trans3 -> Trans5 Changes
+const V3V5 = [
+    "1. <b>Single-basis training</b>: Removed dual X/Z output heads. Each model trains on one basis only, matching the AlphaQubit approach where decoders are basis-specific.",
+    "2. <b>ReadoutResNet</b>: Replaced Linear(d_model, 1) with a 6-stage pipeline: scatter to 2D -> 2x2 stride-2 conv -> 1x1 dim reduction -> global mean pool -> 16 residual blocks -> Linear(readout_dim, 1).",
+    "3. <b>Reduced d_model</b>: Default 128 (down from 256) as a compromise between capacity and compute.",
+    "4. <b>Next-stab cosine annealing</b>: Auxiliary loss weight anneals from 0.02 -> 0 over training (warmup 30% of steps at full weight, then cosine decay).",
+    "5. <b>Padding strategy</b>: Changed from truncate-to-S_min to pad-to-S_max with boolean pad_mask, preserving all detector information."
+]
+
+// 4.2 Trans5 -> Trans6 Changes
+const V5V6 = [
+    "1. <b>4-input embedding</b>: Matches AlphaQubit Extended Data Fig. 4c. Four separate linear projections for measurement, event, leakage, and leakage-event inputs, summed with stabilizer/cycle embeddings. Two residual blocks (_EmbedResBlock) after summation.",
+    "2. <b>Measurement input</b>: Pre-computes measurements from detection events via cumulative XOR per stabilizer. Provides both events AND measurements to the model (paper found this improves performance).",
+    `3. <b>Final-round handling</b>: Separate final_embed module for on-basis stabilizers in the last cycle. Off-basis stabilizers receive a single learned parameter vector (offbasis_final_emb). This matches the paper's description in "Input representation" (Extended Data Fig. 4c-d).`,
+    "4. <b>stab_type metadata</b>: Layout now tracks which stabilizers are on-basis vs off-basis, enabling the final-round treatment.",
+    "5. <b>Leakage-ready</b>: Although current data generation does not produce leakage, the embedding accepts zero-valued leakage inputs, allowing future finetuning with leakage data without architecture changes.", 
+    "6. <b>Data generation</b>: gen_basis_data.py produces both det_hard and meas_hard, deterministically seeded from (base_seed, basis, distance, p)."
+]
+
+// 4.2 Trans6 -> Trans7 Changes
+
+// 4.3 Trans7 -> vs AlphaQubit (Remaining Gaps)
+
 // ...
 
 // Sort by version
 function getV3(dict) {
     var copyDict = {}
     Object.assign(copyDict, dict)
-    copyDict.datasets = [dict.datasets[0], dict.datasets[3]]
+    copyDict.datasets = [dict.datasets[0], dict.datasets[4]]
     return copyDict
 }
 
 function getV5(dict) {
     var copyDict = {}
     Object.assign(copyDict, dict)
-    copyDict.datasets = [dict.datasets[1], dict.datasets[3]]
+    copyDict.datasets = [dict.datasets[1], dict.datasets[4]]
     return copyDict
 }
 
 function getV6(dict) {
     var copyDict = {}
     Object.assign(copyDict, dict)
-    copyDict.datasets = [dict.datasets[2], dict.datasets[3]]
+    copyDict.datasets = [dict.datasets[2], dict.datasets[4]]
+    return copyDict
+}
+
+function getV7(dict) {
+    var copyDict = {}
+    Object.assign(copyDict, dict)
+    copyDict.datasets = [dict.datasets[3], dict.datasets[4]]
     return copyDict
 }
 
@@ -961,6 +1203,8 @@ export function getOverview(version = "All") {
             return getV5(overviewDict)
         case "V6":
             return getV6(overviewDict)
+        case "V7":
+            return getV7(overviewDict)
         default:
             return overviewDict
     }
@@ -975,6 +1219,8 @@ function getGeneration(version = "All") {
             return getV5(generationDict)
         case "V6":
             return getV6(generationDict)
+        case "V7":
+            return getV7(generationDict)
         default:
             return generationDict
     }
@@ -988,6 +1234,8 @@ function getFormat(version = "All") {
             return getV5(formatDict)
         case "V6":
             return getV6(formatDict)
+        case "V7":
+            return getV7(formatDict)
         default:
             return formatDict
     }
@@ -1001,6 +1249,8 @@ function getInput(version = "All") {
             return getV5(inputDict)
         case "V6":
             return getV6(inputDict)
+        case "V7":
+            return getV7(inputDict)
         default:
             return inputDict
     }
@@ -1020,6 +1270,8 @@ function getStabilizer(version = "All") {
             return getV5(stabilizerDict)
         case "V6":
             return getV6(stabilizerDict)
+        case "V7":
+            return getV7(stabilizerDict)
         default:
             return stabilizerDict
     }
@@ -1032,6 +1284,8 @@ function getSyndrome(version = "All") {
             return getV5(syndromeDict)
         case "V6":
             return getV6(syndromeDict)
+        case "V7":
+            return getV7(syndromeDict)
         default:
             return syndromeDict
     }
@@ -1045,6 +1299,8 @@ function getAttention(version = "All") {
             return getV5(attentionDict)
         case "V6":
             return getV6(attentionDict)
+        case "V7":
+            return getV7(attentionDict)
         default:
             return attentionDict
     }
@@ -1058,6 +1314,8 @@ function getReadout(version = "All") {
             return getV5(readoutDict)
         case "V6":
             return getV6(readoutDict)
+        case "V7":
+            return getV7(readoutDict)
         default:
             return readoutDict
     }
@@ -1071,6 +1329,8 @@ function getAuxiliary(version = "All") {
             return getV5(auxiliaryDict)
         case "V6":
             return getV6(auxiliaryDict)
+        case "V7":
+            return getV7(auxiliaryDict)
         default:
             return auxiliaryDict
     }
@@ -1084,11 +1344,13 @@ export function getArchitecture(version = "All") {
 function getModel(version = "All") {
     switch (version) {
         case "V3":
-            return getCustom(modelDict, 4, 0, 1, 4, 5)
+            return getCustom(modelDict, 4, 0, 1, 5, 6)
         case "V5":
-            return getCustom(modelDict, 3, 2, 4, 5)
+            return getCustom(modelDict, 3, 2, 5, 6)
         case "V6":
-            return getCustom(modelDict, 3, 3, 4, 5)
+            return getCustom(modelDict, 3, 3, 5, 6)
+        case "V7":
+            return getCustom(modelDict, 3, 4, 5, 6)
         default:
             return modelDict
     }
@@ -1097,11 +1359,13 @@ function getModel(version = "All") {
 function getTraining(version = "All") {
     switch (version) {
         case "V3":
-            return getCustom(trainingDict, 3, 0, 3, 4)
+            return getCustom(trainingDict, 3, 0, 4, 5)
         case "V5":
-            return getCustom(trainingDict, 3, 1, 3, 4)
+            return getCustom(trainingDict, 3, 1, 4, 5)
         case "V6":
-            return getCustom(trainingDict, 3, 2, 3, 4)
+            return getCustom(trainingDict, 3, 2, 4, 5)
+        case "V7":
+            return getCustom(trainingDict, 3, 3, 4, 5)
         default:
             return trainingDict
     }
@@ -1110,11 +1374,13 @@ function getTraining(version = "All") {
 function getConvolution(version = "All") {
     switch (version) {
         case "V3":
-            return getCustom(convolutionDict, 3, 0, 3, 4)
+            return getCustom(convolutionDict, 3, 0, 4, 5)
         case "V5":
-            return getCustom(convolutionDict, 3, 1, 3, 4)
+            return getCustom(convolutionDict, 3, 1, 4, 5)
         case "V6":
-            return getCustom(convolutionDict, 3, 2, 3, 4)
+            return getCustom(convolutionDict, 3, 2, 4, 5)
+        case "V7":
+            return getCustom(convolutionDict, 3, 3, 4, 5)
         default:
             return convolutionDict
     }

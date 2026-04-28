@@ -17,6 +17,7 @@ const dataDict = {
     'V3': {'X': x_data, 'Z': z_data},
     'V5': {'X': v5_x_data, 'Z': v5_z_data},
     'V6': {'X': v6_x_data, 'Z': v6_z_data},
+    'V7': {'X': x_data, 'Z': z_data},
 }
 
 var data = dataDict[version][basis]
@@ -42,6 +43,7 @@ window.onload = function() {
     document.getElementById("v3-button").addEventListener("click", function() {swapVersion("V3")})
     document.getElementById("v5-button").addEventListener("click", function() {swapVersion("V5")})
     document.getElementById("v6-button").addEventListener("click", function() {swapVersion("V6")})
+    document.getElementById("v7-button").addEventListener("click", function() {swapVersion("V7")})
     makeDetails()
     d3.csv(data.csv, (e) => {makeGraphData(e)})
     document.getElementById("overview").addEventListener("click", function(e) {openTab(e, "overview-div")})
@@ -58,21 +60,32 @@ function swapVersion(newVersion) {
             document.getElementById("v3-button").disabled = false
             document.getElementById("v5-button").disabled = false
             document.getElementById("v6-button").disabled = false
+            document.getElementById("v7-button").disabled = false
             break
         case "V3":
             document.getElementById("all-button").disabled = false
             document.getElementById("v5-button").disabled = false
             document.getElementById("v6-button").disabled = false
+            document.getElementById("v7-button").disabled = false
             break
         case "V5":
             document.getElementById("v3-button").disabled = false
             document.getElementById("all-button").disabled = false
             document.getElementById("v6-button").disabled = false
+            document.getElementById("v7-button").disabled = false
             break
         case "V6":
             document.getElementById("v3-button").disabled = false
             document.getElementById("v5-button").disabled = false
             document.getElementById("all-button").disabled = false
+            document.getElementById("v7-button").disabled = false
+            break
+        case "V7":
+            document.getElementById("v3-button").disabled = false
+            document.getElementById("v5-button").disabled = false
+            document.getElementById("v6-button").disabled = false
+            document.getElementById("all-button").disabled = false
+            break
     }
 
     data = dataDict[version][basis]
