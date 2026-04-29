@@ -29,8 +29,9 @@ class SyndromeDataset(Dataset):
         self,
         samples: np.ndarray,
         labels: np.ndarray,
-        layout_json_path: str,
+        layout_json_path: Optional[str],
         *,
+        layout: Optional[Dict[str, Any]] = None,   # pre-loaded dict; takes priority over path
         input_mode: str = "hard",              # "hard" or "soft"
         mask_last_cycle: bool = False,         # 若要把最後一輪 detector 全遮掉（避免 label leak/terminal）
         custom_token_mask: Optional[np.ndarray] = None,  # (L,) bool, 1=keep
@@ -44,7 +45,7 @@ class SyndromeDataset(Dataset):
 
         if samples.ndim == 1:
             samples = samples.reshape(1, -1)
-        
+
         # 支持兩種格式：
         # 1. labels 是 (N, 1) 或 (N,) - 單個邏輯標籤（向後兼容）
         # 2. labels 是 (N, 2) - X 和 Z 邏輯標籤
@@ -61,8 +62,11 @@ class SyndromeDataset(Dataset):
 
         assert samples.shape[0] == labels.shape[0], "shots mismatch"
 
-        with open(layout_json_path, "r") as f:
-            layout = json.load(f)
+        if layout is None:
+            if layout_json_path is None:
+                raise ValueError("Must provide either layout_json_path or layout dict")
+            with open(layout_json_path, "r") as f:
+                layout = json.load(f)
 
         L_expected = int(layout["num_detectors"])
         assert samples.shape[1] == L_expected, (
