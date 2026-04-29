@@ -80,6 +80,12 @@ button.clicked {
  background: #024283; 
 }
 
+.horizontal-scroll {
+  overflow: auto;
+  white-space: nowrap;
+  max-width: 1000px;
+}
+
 .hero-section { background: #f0f7ff; padding: 20px; border-radius: 8px; margin-bottom: 30px; border: 1px solid #d0e7ff; }
 body { font-family: sans-serif; line-height: 1.6; max-width: 1000px; margin: 0 auto; padding: 20px; color: #333; }
 h1 { color: #004a99; }
