@@ -116,7 +116,8 @@ class TrainConfig:
     # 1 = disabled (default, matches current behaviour).
     grad_accum_steps: int = 1
 
-    # LR decay schedule (piecewise constant)
+    # LR schedule: linear warmup then piecewise constant decay (AlphaQubit paper)
+    lr_warmup_steps: int = 10_000
     lr_decay_factor: float = 0.7
     lr_decay_steps: List[int] = field(
         default_factory=lambda: [400_000, 800_000, 1_600_000]

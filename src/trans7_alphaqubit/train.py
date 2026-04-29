@@ -40,8 +40,13 @@ def get_batch_size(step: int, cfg) -> int:
 
 
 def apply_lr_schedule(optimizer: torch.optim.Optimizer, step: int, cfg) -> float:
-    k = sum(step >= s for s in cfg.lr_decay_steps)
-    lr = cfg.lr * (cfg.lr_decay_factor**k)
+    warmup = getattr(cfg, "lr_warmup_steps", 0)
+    if warmup > 0 and step < warmup:
+        scale = (step + 1) / warmup
+    else:
+        k = sum(step >= s for s in cfg.lr_decay_steps)
+        scale = cfg.lr_decay_factor ** k
+    lr = cfg.lr * scale
     for pg in optimizer.param_groups:
         pg["lr"] = lr
     return float(lr)
@@ -128,9 +133,16 @@ def train(
             betas=(cfg.beta1, cfg.beta2),
             weight_decay=cfg.weight_decay,
         )
+    elif cfg.optimizer.lower() in ("adam", "adamw"):
+        optimizer = torch.optim.AdamW(
+            model.parameters(),
+            lr=cfg.lr,
+            betas=(cfg.beta1, cfg.beta2),
+            weight_decay=cfg.weight_decay,
+        )
     else:
         raise ValueError(
-            f"Unknown optimizer: {cfg.optimizer!r}. Only 'lion' is supported."
+            f"Unknown optimizer: {cfg.optimizer!r}. Supported: 'lion', 'adamw'."
         )
 
     # EMA
@@ -166,6 +178,8 @@ def train(
     wb_on = bool(use_wandb and wandb is not None and is_main)
     if wb_on:
         wandb.init(project="alphaqubit-trans7", name=run_name, config=asdict(cfg))
+        # Log gradient norms and weight histograms every 500 steps
+        wandb.watch(model, log="all", log_freq=500)
 
     best: Dict[str, Any] = {
         "step": -1,

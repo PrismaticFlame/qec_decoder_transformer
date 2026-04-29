@@ -42,6 +42,11 @@ USE_WANDB="${USE_WANDB:-}"             # set to "--use_wandb" to enable
 # Set automatically by the requeue handler below, or pass manually:
 #   sbatch --export=ALL,RESUME_CKPT=/path/to/pretrain_x+z_d3_resume.pth run_trans7_pretrain_ddp.slurm
 RESUME_CKPT="${RESUME_CKPT:-}"
+# Optimizer: 'lion' (paper default) or 'adamw' (alternative).
+# AdamW typically needs a higher lr than Lion; if using adamw without an explicit
+# lr override, consider passing LR=3e-4 (vs Lion's 1.3e-4 for d=3).
+OPTIMIZER="${OPTIMIZER:-lion}"
+LR="${LR:-}"                           # empty = use TrainConfig default for the distance
 # ----------------------------------------------------------------------------
 
 # ---- Auto-requeue handler --------------------------------------------------
@@ -191,6 +196,9 @@ echo "===== Starting DDP pretraining ($NGPUS GPUs) at $(date) ====="
 RESUME_FLAG=""
 [ -n "$RESUME_CKPT" ] && RESUME_FLAG="--resume $RESUME_CKPT"
 
+LR_FLAG=""
+[ -n "$LR" ] && LR_FLAG="--lr $LR"
+
 CKPT_DIR="/home/${USER}/src/trans7_alphaqubit/checkpoints/pretrain"
 
 echo "===== Starting GPU monitor (logging every 5s to logs/gpu_usage_${SLURM_JOB_ID}.log) ====="
@@ -217,6 +225,8 @@ torchrun \
   --d_model "${D_MODEL}" \
   --data_dir "$LOCAL_DATA_DIR" \
   --checkpoint_dir "$CKPT_DIR" \
+  --optimizer "${OPTIMIZER}" \
+  ${LR_FLAG} \
   ${USE_WANDB} \
   ${RESUME_FLAG}
 TORCHRUN_EXIT=$?
