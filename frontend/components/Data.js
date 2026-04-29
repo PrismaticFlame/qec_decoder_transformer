@@ -17,5 +17,9 @@ export default class Data {
             this.alphaBest = alphaBestD5
         else
             this.alphaBest = 0
+        if (d2 != 0) {
+            this.alphaBestD3 = alphaBestD3
+            this.alphaBestD5 = alphaBestD5
+        }
     }
 }

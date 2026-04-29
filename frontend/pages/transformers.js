@@ -25,13 +25,7 @@ var data = dataDict[version][basis]
 const ctx = document.getElementById('transformer-chart');
 var graphData = null
 var myChart = null
-var tables = {
-    "transformer-table": null, 
-    "overview-table": null,
-    "generation-table": null,
-    "format-table": null,
-    "input-table": null,
-}
+var tables = {}
 
 window.onload = function() {
     document.getElementById("x-button").disabled = true
@@ -59,40 +53,70 @@ window.onload = function() {
 function swapVersion(newVersion) {
     document.getElementById(`${newVersion.toLowerCase()}-button`).disabled = true
     version = newVersion
+    var buttonAll = document.getElementById("all-button")
+    var buttonV3 = document.getElementById("v3-button")
+    var buttonV5 = document.getElementById("v5-button")
+    var buttonV6 = document.getElementById("v6-button")
+    var buttonV7 = document.getElementById("v7-button")
     switch (newVersion) {
         case "All":
-            document.getElementById("v3-button").disabled = false
-            document.getElementById("v5-button").disabled = false
-            document.getElementById("v6-button").disabled = false
-            document.getElementById("v7-button").disabled = false
+            buttonV3.disabled = false
+            buttonV3.classList.remove("clicked")
+            buttonV5.disabled = false
+            buttonV5.classList.remove("clicked")
+            buttonV6.disabled = false
+            buttonV6.classList.remove("clicked")
+            buttonV7.disabled = false
+            buttonV7.classList.remove("clicked")
+            buttonAll.classList.add("clicked")
             document.getElementById("data").style.display = ""
             break
         case "V3":
-            document.getElementById("all-button").disabled = false
-            document.getElementById("v5-button").disabled = false
-            document.getElementById("v6-button").disabled = false
-            document.getElementById("v7-button").disabled = false
+            buttonAll.disabled = false
+            buttonAll.classList.remove("clicked")
+            buttonV5.disabled = false
+            buttonV5.classList.remove("clicked")
+            buttonV6.disabled = false
+            buttonV6.classList.remove("clicked")
+            buttonV7.disabled = false
+            buttonV7.classList.remove("clicked")
+            buttonV3.classList.add("clicked")
             document.getElementById("data").style.display = "none"
             break
         case "V5":
-            document.getElementById("v3-button").disabled = false
-            document.getElementById("all-button").disabled = false
-            document.getElementById("v6-button").disabled = false
-            document.getElementById("v7-button").disabled = false
+            buttonV3.disabled = false
+            buttonV3.classList.remove("clicked")
+            buttonAll.disabled = false
+            buttonAll.classList.remove("clicked")
+            buttonV6.disabled = false
+            buttonV6.classList.remove("clicked")
+            buttonV7.disabled = false
+            buttonV7.classList.remove("clicked")
+            buttonV5.classList.add("clicked")
             document.getElementById("data").style.display = ""
             break
         case "V6":
-            document.getElementById("v3-button").disabled = false
-            document.getElementById("v5-button").disabled = false
-            document.getElementById("all-button").disabled = false
-            document.getElementById("v7-button").disabled = false
+            buttonV3.disabled = false
+            buttonV3.classList.remove("clicked")
+            buttonV5.disabled = false
+            buttonV5.classList.remove("clicked")
+            buttonAll.disabled = false
+            buttonAll.classList.remove("clicked")
+            buttonV7.disabled = false
+            buttonV7.classList.remove("clicked")
+            buttonV6.classList.add("clicked")
             document.getElementById("data").style.display = ""
             break
         case "V7":
-            document.getElementById("v3-button").disabled = false
-            document.getElementById("v5-button").disabled = false
-            document.getElementById("v6-button").disabled = false
-            document.getElementById("all-button").disabled = false
+            buttonV3.disabled = false
+            buttonV3.classList.remove("clicked")
+            buttonV5.disabled = false
+            buttonV5.classList.remove("clicked")
+            buttonV6.disabled = false
+            buttonV6.classList.remove("clicked")
+            buttonAll.disabled = false
+            buttonAll.classList.remove("clicked")
+            buttonV7.classList.add("clicked")
             document.getElementById("data").style.display = "none"
             break
     }
@@ -111,11 +135,15 @@ function swapBasis() {
     if (basis == "X") {
         basis = "Z"
         xButton.disabled = false
+        xButton.classList.remove("clicked")
         zButton.disabled = true
+        zButton.classList.add("clicked")
     } else {
         basis = "X"
         zButton.disabled = false
+        zButton.classList.remove("clicked")
         xButton.disabled = true
+        xButton.classList.add("clicked")
     }
     data = dataDict[version][basis]
 
@@ -216,8 +244,12 @@ function makeGraphData(myData) {
                         data: bestLerD5V6
                     },
                     {
-                        label: 'AlphaQubit Best Results',
-                        data: Array(devLerD3V5.length).fill(data.alphaBest)
+                        label: 'AlphaQubit Best Results (D3)',
+                        data: Array(devLerD3V5.length).fill(data.alphaBestD3)
+                    },
+                    {
+                        label: 'AlphaQubit Best Results (D5)',
+                        data: Array(devLerD3V5.length).fill(data.alphaBestD5)
                     }
             ]}
         } else {
@@ -226,6 +258,8 @@ function makeGraphData(myData) {
             var bestLerD3 = myData.map(function(d) {return d.best_ler_d3})
             var devLerD5 = myData.map(function(d) {return d.dev_ler_d5})
             var bestLerD5 = myData.map(function(d) {return d.best_ler_d5})
+
+            console.log(data)
 
             graphData = {
                 labels: steps,
@@ -247,8 +281,12 @@ function makeGraphData(myData) {
                         data: bestLerD5
                     },
                     {
-                        label: 'AlphaQubit Best Results',
-                        data: Array(devLerD3.length).fill(data.alphaBest)
+                        label: 'AlphaQubit Best Results (D3)',
+                        data: Array(devLerD3.length).fill(data.alphaBestD3)
+                    },
+                    {
+                        label: 'AlphaQubit Best Results (D5)',
+                        data: Array(devLerD3.length).fill(data.alphaBestD5)
                     }
             ]}
         }
@@ -358,10 +396,18 @@ function makeChart() {
             scales: {
                 x: {
                     display: true,
+                    title: {
+                        display: true,
+                        text: "Shots"
+                    }
                 },
                 y: {
                     display: true,
                     type: 'logarithmic',
+                    title: {
+                        display: true,
+                        text: "LER"
+                    }
                 }
             }
         },

@@ -4,55 +4,63 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="X-UA-Compatible" content="ie=edge">
-    <title>Transformers</title>
+    <title>Training Results</title>
     <link rel="stylesheet" href="../style.css">
     <link href="https://unpkg.com/tabulator-tables@6.4.0/dist/css/tabulator.min.css" rel="stylesheet">
     <link rel="icon" href="./favicon.ico" type="image/x-icon">
   </head>
   <body>
     <main>
-      <a href="/"><button>Return to homepage</button></a>
+      <a href="/">Homepage</a>
+      |
+      <a href="/pages/transformers.html">View training results</a>
+      |
+      <a href="/pages/references.html">References</a>
+      |
+      <a href="/pages/results.html">Final Results</a>
       
       <hr>
-      <h1>Transformers</h1>
+      <h1>Training Results</h1>
       <div>
-        <button id="all-button">All</button>
-        <button id="v3-button">V3</button>
-        <button id="v5-button">V5</button>
-        <button id="v6-button">V6</button>
-        <button id="v7-button">V7</button>
+        <button id="all-button" class="switch clicked">All</button>
+        <button id="v3-button" class="switch">V3</button>
+        <button id="v5-button" class="switch">V5</button>
+        <button id="v6-button" class="switch">V6</button>
+        <button id="v7-button" class="switch">V7</button>
       </div>
 
       <h2><span id="summary-version">All</span>: Short summary</h2>
       <div id="summary"></div>
       
       <div id="data">
+        <h2>Results</h2>
         <div>
-          <button id="x-button">X</button>
-          <button id="z-button">Z</button>
+          <button id="x-button" class="switch clicked">X</button>
+          <button id="z-button" class="switch">Z</button>
         </div>
-          <!-- Connect no-data div to loading -->
-          <canvas id="transformer-chart"></canvas>
-          <details id="details">
-            <summary>Show raw metrics</summary>
-            <div id="transformer-table"></div>
-          </details>
+        <canvas id="transformer-chart"></canvas>
+        <details id="details">
+          <summary>Show raw metrics</summary>
+          <div id="transformer-table"></div>
+        </details>
       </div>
-      <!-- Fix table spacing -->
-        <div class="tab">
+
+      <h2>Model details</h2>
+      <p class="hero-section">Hover over a cell to view its full contents</p>
+      <div class="tab">
         <button id="overview" class="tablinks">Overview</button>
         <button id="structure" class="tablinks">Data Input and Structure</button>
         <button id="architecture" class="tablinks">Model Architecture</button>
         <button id="parameters" class="tablinks">Parameters and Hyperparameters</button>
         <button id="differences" class="tablinks">Key Architectural Differences</button>
-        <button id="flow" class="tablinks">Data Flow Diagrams</button>
+        <button id="flow" class="tablinks">Data Flow</button>
         <button id="evolution" class="tablinks">Evolution Summary</button>
       </div>
 
       <div id="overview-div" class="tabcontent">
         <h3>Overview</h3>
         <div id="overview-table"></div>
-        <br><br><br>
+        <br>
       </div>
 
       <div id="structure-div" class="tabcontent">
@@ -84,7 +92,7 @@
         <div id="readout-table"></div>
         <h3>Auxiliary Tasks</h3>
         <div id="auxiliary-table"></div>
-        <br><br><br>
+        <br>
       </div>
 
       <div id="parameters-div" class="tabcontent">
@@ -100,7 +108,7 @@
       <div id="differences-div" class="tabcontent">
         <div id="changes"></div>
         <div id="gaps"></div>
-        <br><br><br>
+        <br>
       </div>
 
       <div id="flow-div" class="tabcontent">
@@ -201,6 +209,7 @@ Model input per round:
       </div>
 
       <div id="evolution-div" class="tabcontent">
+        <h3>Evolution Summary</h3>
         <pre class="codebox"><code>
 Trans3 (Baseline Implementation)
   |-- Faithful reproduction of core AlphaQubit components
