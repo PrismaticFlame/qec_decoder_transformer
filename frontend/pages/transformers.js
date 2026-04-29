@@ -357,7 +357,8 @@ function makeTable(tableId, graphData) {
     if (tableId == "transformer-table") {
         tableParams.layout = "fitDataTable"
         document.getElementById(tableId).style.removeProperty("height")
-    }
+        tableParams.columnDefaults.tooltip = false
+    } 
     if (tableParams.data.length > 7) {
         tableParams['height'] = 205
     }
