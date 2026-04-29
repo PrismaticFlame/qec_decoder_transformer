@@ -11,6 +11,9 @@
   </head>
   <body>
     <main>
+      <a href="/"><button>Return to homepage</button></a>
+      
+      <hr>
       <h1>Transformers</h1>
       <div>
         <button id="all-button">All</button>
@@ -22,11 +25,12 @@
 
       <h2><span id="summary-version">All</span>: Short summary</h2>
       <div id="summary"></div>
-      <div>
-        <button id="x-button">X</button>
-        <button id="z-button">Z</button>
-      </div>
-      <div>
+      
+      <div id="data">
+        <div>
+          <button id="x-button">X</button>
+          <button id="z-button">Z</button>
+        </div>
           <!-- Connect no-data div to loading -->
           <canvas id="transformer-chart"></canvas>
           <details id="details">
@@ -41,6 +45,8 @@
         <button id="architecture" class="tablinks">Model Architecture</button>
         <button id="parameters" class="tablinks">Parameters and Hyperparameters</button>
         <button id="differences" class="tablinks">Key Architectural Differences</button>
+        <button id="flow" class="tablinks">Data Flow Diagrams</button>
+        <button id="evolution" class="tablinks">Evolution Summary</button>
       </div>
 
       <div id="overview-div" class="tabcontent">
@@ -94,6 +100,158 @@
       <div id="differences-div" class="tabcontent">
         <div id="changes"></div>
         <div id="gaps"></div>
+        <br><br><br>
+      </div>
+
+      <div id="flow-div" class="tabcontent">
+        <div id="trans3-flow">
+          <h3>Trans3 Data Flow</h3>
+          <pre class="codebox"><code>
+Stim circuit (depolarizing noise, single p)
+  -> det_hard (N, D) binary detection events
+  -> obs (N, 2) [X_label, Z_label]
+  -> layout.json (stab_id, cycle_id, x, y)
+
+Model input:
+  syndrome (B, L) = flattened det_hard
+  -> StabilizerEmbedding: E_stab(i) + E_cycle(n) + E_val(syndrome)
+  -> RNNCore processes T cycles
+  -> mean pool -> Linear -> logits_x, logits_z
+          </code></pre>
+        </div>
+        <div id="trans5-flow">
+          <h3>Trans5 Data Flow</h3>
+          <pre class="codebox"><code>
+Same data as Trans3, but single basis only:
+  -> det_hard (N, D) binary detection events
+  -> obs (N, 1) single basis label
+
+Model input:
+  syndrome (B, L) = flattened det_hard
+  -> StabilizerEmbedding (same as Trans3)
+  -> RNNCore processes T cycles
+  -> ReadoutResNet (scatter 2D -> conv -> pool -> ResNet) -> logit
+          </code></pre>
+        </div>
+        <div id="trans6-flow">
+          <h3>Trans6 Data Flow</h3>
+          <pre class="codebox"><code>
+Stim circuit (depolarizing noise)
+  -> det_hard (N, D) binary detection events
+  -> meas_hard (N, D) = cumulative XOR of det_hard per stabilizer
+  -> obs (N, 1) single basis label
+  -> layout.json (stab_id, cycle_id, x, y, stab_type)
+
+Model input per cycle t:
+  meas(B,S), event(B,S), leak(B,S)=0, event_leak(B,S)=0
+  -> StabilizerEmbedding:
+       proj_meas(m) + proj_event(e) + proj_leak(l) + proj_event_leak(el)
+       + E_stab(i) + E_cycle(n)
+       -> ResBlock1 -> ResBlock2
+  -> [Final cycle: on-basis uses final_embed, off-basis uses learned vector]
+  -> RNNCore processes T cycles
+  -> ReadoutResNet -> logit
+          </code></pre>
+        </div>
+        
+        <div id="trans7-flow">
+          <h3>Trans7 Data Flow</h3>
+          <pre class="codebox"><code>
+Tzu-Chen fixed dataset (Stim, reproducible)
+  -> pretrain.h5 (157MB, all distances/rounds/bases compressed)
+  -> ChunkedHDF5Dataset: 50k-sample chunks, background prefetch
+  -> copied to /tmp/ on compute node before training
+
+Model input per cycle t (same as Trans6):
+  meas(B,S), event(B,S), leak(B,S)=0, event_leak(B,S)=0
+  -> StabilizerEmbedding (same as Trans6)
+  -> [Final cycle: on-basis uses final_embed, off-basis uses learned vector]
+  -> RNNCore: 3 layers, per-distance dilations from Table S4
+  -> ReadoutResNet: torch.where selects X or Z pool direction per sample
+  -> logit (X or Z basis depending on batch sample)
+
+Training:
+  -> DDP across N GPUs via torchrun (NCCL all-reduce)
+  -> Effective batch = 256/N per GPU (total always 256, matches paper)
+  -> Lion optimizer, per-distance LR from Table S3
+  -> Checkpoint saved on LER improvement (_best.pth)
+  -> Resume checkpoint saved every eval (_resume.pth, includes optimizer state)
+  -> Auto-requeue SLURM: submits next job 120s before time limit
+          </code></pre>
+        </div>
+        <div>
+          <h3>AlphaQubit Data Flow</h3>
+          <pre class="codebox"><code>
+Pauli+ simulator (cross-talk, leakage, I/Q noise)
+  -> I/Q readout signals -> posterior probabilities (post1, post2)
+  -> Detection events (soft XOR of measurements)
+  -> Leakage events (temporal diff of leakage probability)
+
+Model input per round:
+  post1 (measurement prob), events (soft), post2 (leakage prob), leakage events
+  -> StabilizerEmbedder:
+       Sum of 4 linear projections + E_stab(i) + E_cycle(n)
+       -> 2-layer ResNet
+  -> [Final round: separate final-round embedding; off-basis: learned vector]
+  -> Syndrome Transformer (attention + gated dense + dilated convolutions) x3 layers
+  -> Recurrently updates decoder state
+  -> Readout: scatter 2D -> 2x2 conv -> project -> pool along logical observables -> ResNet -> logit
+          </code></pre>
+        </div>
+      </div>
+
+      <div id="evolution-div" class="tabcontent">
+        <pre class="codebox"><code>
+Trans3 (Baseline Implementation)
+  |-- Faithful reproduction of core AlphaQubit components
+  |-- Dual-head (X+Z) training
+  |-- Simple linear readout
+  |-- Manhattan distance OR full attention bias
+  |-- Hard/soft syndrome input
+  |
+  v
+Trans5 (Readout + Single-Basis)
+  |-- Single-basis training (matches paper)
+  |-- ReadoutResNet (spatial-aware readout, 16 residual blocks)
+  |-- d_model reduced to 128 (faster training)
+  |-- Cosine annealing for next-stab weight
+  |-- Pad-to-S_max (preserves all detectors)
+  |
+  v
+Trans6 (AlphaQubit Input Representation)
+  |-- 4-input embedding (meas + event + leak + event_leak)
+  |-- 2-layer embedding ResNet (paper Fig 4c)
+  |-- Separate final-round embedding
+  |-- Off-basis learned vector
+  |-- Pre-computed measurements in data
+  |-- stab_type (on/off basis) in layout
+  |-- Leakage-ready architecture (zeros for now)
+  |-- Separate conv weights per layer
+  |
+  v
+Trans7 (Paper Hyperparameters + HPC Infrastructure)
+  |-- Per-distance learning rates (Table S3)
+  |-- Per-distance dilation schedules (Table S4)
+  |-- Multi-GPU DDP training (torchrun, NCCL)
+  |-- Fixed Tzu-Chen dataset (reproducible)
+  |-- HDF5 streaming (pretrain.h5, 157MB)
+  |-- Data copied to /tmp/ on compute node
+  |-- Resume checkpointing (optimizer state preserved)
+  |-- Auto-requeue SLURM (seamless multi-job runs)
+  |-- Mixed-basis training (X+Z jointly, torch.where pooling)
+  |-- Next-stab cosine annealing (restored from Trans5)
+  |
+  v
+AlphaQubit (Full Paper, remaining gaps)
+  |-- Soft I/Q readouts with posterior probabilities
+  |-- Realistic leakage modeling (Pauli+ simulator)
+  |-- Cross-talk modeling
+  |-- Two-stage training (pretrain + finetune)
+  |-- Noise and rounds curricula
+  |-- Multi-distance training
+  |-- Ensembling (15-20 models)
+  |-- Scale: billions of training samples
+        </code></pre>
       </div>
         
 

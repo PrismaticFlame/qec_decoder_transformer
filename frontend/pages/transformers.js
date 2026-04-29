@@ -47,10 +47,13 @@ window.onload = function() {
     makeDetails()
     d3.csv(data.csv, (e) => {makeGraphData(e)})
     document.getElementById("overview").addEventListener("click", function(e) {openTab(e, "overview-div")})
+    document.getElementById("overview").click()
     document.getElementById("structure").addEventListener("click", function(e) {openTab(e, "structure-div")})
     document.getElementById("architecture").addEventListener("click", function(e) {openTab(e, "architecture-div")})
     document.getElementById("parameters").addEventListener("click", function(e) {openTab(e, "parameters-div")})
     document.getElementById("differences").addEventListener("click", function(e) {openTab(e, "differences-div")})
+    document.getElementById("flow").addEventListener("click", function(e) {openTab(e, "flow-div")})
+    document.getElementById("evolution").addEventListener("click", function(e) {openTab(e, "evolution-div")})
 }
 
 function swapVersion(newVersion) {
@@ -62,30 +65,35 @@ function swapVersion(newVersion) {
             document.getElementById("v5-button").disabled = false
             document.getElementById("v6-button").disabled = false
             document.getElementById("v7-button").disabled = false
+            document.getElementById("data").style.display = ""
             break
         case "V3":
             document.getElementById("all-button").disabled = false
             document.getElementById("v5-button").disabled = false
             document.getElementById("v6-button").disabled = false
             document.getElementById("v7-button").disabled = false
+            document.getElementById("data").style.display = "none"
             break
         case "V5":
             document.getElementById("v3-button").disabled = false
             document.getElementById("all-button").disabled = false
             document.getElementById("v6-button").disabled = false
             document.getElementById("v7-button").disabled = false
+            document.getElementById("data").style.display = ""
             break
         case "V6":
             document.getElementById("v3-button").disabled = false
             document.getElementById("v5-button").disabled = false
             document.getElementById("all-button").disabled = false
             document.getElementById("v7-button").disabled = false
+            document.getElementById("data").style.display = ""
             break
         case "V7":
             document.getElementById("v3-button").disabled = false
             document.getElementById("v5-button").disabled = false
             document.getElementById("v6-button").disabled = false
             document.getElementById("all-button").disabled = false
+            document.getElementById("data").style.display = "none"
             break
     }
 
@@ -254,7 +262,6 @@ function makeGraphData(myData) {
 
 function colsToRows(myDict) {
     var tableData = []
-    console.log(myDict)
     for (var i = 0; i <= myDict.labels.length; i++) {
         var row = {}
         row.id = i
@@ -386,6 +393,12 @@ function makeDetails() {
     makeTable("training-table", parameters[1])
     makeTable("convolution-table", parameters[2])
 
+    changeDifferences()
+
+    changeFlow()
+}
+
+function changeDifferences() {
     const differences = getDifferences(version)
     var changes = ""
     switch (version) {
@@ -449,6 +462,40 @@ function makeDetails() {
             break
     }
     document.getElementById("changes").innerHTML = changes
+}
+
+function changeFlow() {
+    switch (version) {
+        case "V3":
+            document.getElementById("trans3-flow").style.display = ""
+            document.getElementById("trans5-flow").style.display = "none"
+            document.getElementById("trans6-flow").style.display = "none"
+            document.getElementById("trans7-flow").style.display = "none"
+            break
+        case "V5":
+            document.getElementById("trans3-flow").style.display = "none"
+            document.getElementById("trans5-flow").style.display = ""
+            document.getElementById("trans6-flow").style.display = "none"
+            document.getElementById("trans7-flow").style.display = "none"
+            break
+        case "V6":
+            document.getElementById("trans3-flow").style.display = "none"
+            document.getElementById("trans5-flow").style.display = "none"
+            document.getElementById("trans6-flow").style.display = ""
+            document.getElementById("trans7-flow").style.display = "none"
+            break
+        case "V7":
+            document.getElementById("trans3-flow").style.display = "none"
+            document.getElementById("trans5-flow").style.display = "none"
+            document.getElementById("trans6-flow").style.display = "none"
+            document.getElementById("trans7-flow").style.display = ""
+            break
+        default: 
+            document.getElementById("trans3-flow").style.display = ""
+            document.getElementById("trans5-flow").style.display = ""
+            document.getElementById("trans6-flow").style.display = ""
+            document.getElementById("trans7-flow").style.display = ""
+    }
 }
 
 function openTab(evt, cityName) {
