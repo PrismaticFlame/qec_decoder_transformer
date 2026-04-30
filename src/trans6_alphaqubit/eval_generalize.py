@@ -858,7 +858,20 @@ def main():
             writer = csv.DictWriter(f, fieldnames=all_rows[0].keys())
             writer.writeheader()
             writer.writerows(all_rows)
-        print(f"\n[csv] Results saved to {csv_path}")
+        print(f"[csv] Model results saved to {csv_path}")
+
+    if mwpm_results:
+        mwpm_rows = [
+            {"basis": basis, "distance": dist, "rounds": pt["rounds"], "ler": pt["ler"]}
+            for (basis, dist), pts in sorted(mwpm_results.items())
+            for pt in sorted(pts, key=lambda p: p["rounds"])
+        ]
+        mwpm_csv_path = output_dir / "mwpm_results.csv"
+        with open(mwpm_csv_path, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=["basis", "distance", "rounds", "ler"])
+            writer.writeheader()
+            writer.writerows(mwpm_rows)
+        print(f"[csv] MWPM results saved to {mwpm_csv_path}")
 
     # ── summary table ─────────────────────────────────────────────────────
     if all_rows:
