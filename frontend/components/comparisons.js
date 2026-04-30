@@ -1,5 +1,5 @@
 // Short summary
-const summaryAll = "<p>Transformer versions 1, 2, and 4 are not included in this data. V1 was the first attempt at training, and produced no output. V2 never became a functional transformer model. V4 was functional, but was too similar to v3 to warrant its own results.</p>"
+const summaryAll = "<p>Transformer versions 1, 2, and 4 are not included in this data. V1 was the first attempt at training, and produced no output. V2 never became a functional transformer model. V3 generated results, but we were unable to obtain evaulation data for this model. V4 was functional, but was too similar to v3 to warrant its own results.</p>"
 const summaryV3 = "<p>Transformer version 3 does not have data available at this time.</p>"
 const summaryV5 = "<p>This is the summary for V5.</p>"
 const summaryV6 = "<p>This is the summary for V6.</p>"

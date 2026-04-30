@@ -1,5 +1,5 @@
-var alphaBestD3 = 2.901 * 0.01
-var alphaBestD5 = 2.748 * 0.01
+var alphaBestD3 = 0.02901
+var alphaBestD5 = 0.02748
 
 export default class Data {
 
