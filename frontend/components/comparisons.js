@@ -1,9 +1,74 @@
 // Short summary
-const summaryAll = "<p>Transformer versions 1, 2, and 4 are not included in this data. V1 was the first attempt at training, and produced no output. V2 never became a functional transformer model. V3 generated results, but we were unable to obtain evaulation data for this model. V4 was functional, but was too similar to v3 to warrant its own results.</p>"
-const summaryV3 = "<p>Transformer version 3 does not have data available at this time.</p>"
-const summaryV5 = "<p>This is the summary for V5.</p>"
-const summaryV6 = "<p>This is the summary for V6.</p>"
-const summaryV7 = "<p>Transformer version 7 does not have data available at this time."
+const summaryAll = "<p>Transformer versions 1, 2, and 4 are not included in this data. V1 was the first attempt at training and produced no output. V2 never became a functional transformer model. V3 generated results, but evaluation data is not available for this model. V4 was functional but was too similar to V3 to warrant its own results.</p>"
+const summaryV3 = `
+<p>
+    Trans3 was the first full implementation of the AlphaQubit architecture. It established the four core 
+    algorithmic blocks that all subsequent versions build on: <b>StabilizerEmbedding</b>, 
+    <b>MHAttentionWithBias</b> (multi-head attention with a learned spatial bias matrix), 
+    <b>GatedDenseBlock</b> (a gated FFN with GELU activation), and 
+    <b>ScatteringResidualConvBlock</b> (which scatters stabilizer tokens onto a spatial grid, 
+    applies dilated 2D convolutions, then gathers back). The StabilizerEmbedding 
+    summed three components: a stabilizer identity embedding, a cycle 
+    position embedding, and a value embedding. Supporting both hard 
+    binary syndromes and soft/analog measurements via a linear projection. 
+    The readout was a simple linear classifier applied directly to the decoder state. 
+    Trans3 proved the architecture was trainable and produced reasonable 
+    LER results, but the small model dimension and simple readout left significant 
+    room for improvement.
+    </p>
+`
+const summaryV5 = `
+<p>
+    Trans5 introduced the <b>ReadoutResNet</b> readout head, 
+    replacing the plain linear classifier with a 6-stage pipeline: decoder 
+    states are scattered onto the spatial grid, processed by a 2D convolution, 
+    reduced in dimension, mean-pooled across the cycle axis, 
+    passed through residual MLP blocks, and projected to a logit 
+    per data qubit. This matched the AlphaQubit paper's description 
+    more closely. The default model dimension was raised to 
+    <code>d_model=128</code> and the AlphaQubit cosine 
+    annealing learning rate schedule was enabled by default. 
+    Trans5 also added a physical error rate sweep tool to evaluate generalisation 
+    across different noise levels. The embedding structure was unchanged 
+    from Trans3, still the three-component stab/cycle/value sum, 
+    but the improved readout produced meaningfully better LER.
+    </p>
+`
+const summaryV6 = `
+<p>
+    Trans6 brought the implementation to paper scale. The model dimension was 
+    raised to <code>d_model=256</code>, matching the AlphaQubit paper exactly. 
+    The StabilizerEmbedding was redesigned to the <b>four-input form</b> described 
+    in Extended Data Fig. 4c: separate linear projections for measurement, 
+    detection event, leakage, and leakage event, all summed with the stabilizer 
+    identity and cycle position embeddings, then passed through two residual 
+    blocks (<code>_EmbedResBlock</code>). Leakage inputs were designed 
+    to be zeroed out when absent, allowing future fine-tuning on hardware data 
+    without architecture changes. Trans6 also added proper multi-basis training 
+    (X and Z combined), final-round on-basis/off-basis treatment, and expanded 
+    evaluation tools including generalisation testing across round counts and 
+    comparison against MWPM.
+    </p>
+`
+const summaryV7 = `
+<p>
+    Trans7 is the current development version, targeting 
+    training on Google's publicly released DEM-simulated surface code data (130 
+    <code>surface_code_b*</code> directories). The core model architecture is 
+    based on Trans6 with two key corrections: the ScatteringResidualConvBlock 
+    now uses <b>distance-specific dilation schedules</b> (<code>d=3: [1,1,1]</code>, 
+    <code>d=5: [1,1,2]</code>, <code>d≥7: [1,2,4]</code>) from the paper's 
+    hyperparameter table, and per-distance learning rates from Table S3 are applied. 
+    The training infrastructure was substantially rebuilt: a monolithic HDF5 file 
+    consolidates all 130 directories with globally shuffled sample indices; a streaming 
+    dataset provides rolling-window chunk loading with background prefetching 
+    and dynamic chunk sizing proportional to the current batch size; and the training 
+    loop handles variable round counts via <code>GroupedBatchSampler</code> 
+    for D-homogeneous batches. AMP (Automatic Mixed Precision), gradient 
+    checkpointing, DDP multi-GPU support, and Weights &amp; Biases logging 
+    are also integrated.
+</p>
+`
 const summary = {"All": summaryAll, "V3": summaryV3, "V5": summaryV5, "V6": summaryV6, "V7": summaryV7}
 
 // Overview
