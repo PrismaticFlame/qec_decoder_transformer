@@ -40,34 +40,8 @@ docker-compose down
 
 ---
 
-## 3. Run This Project
-
-### Step 1: Navigate to the Streamlit Directory
-
-Make sure your terminal is inside the `streamlit` folder:
-
-```bash
-cd streamlit
-```
-
-### Step 2: Start the App
-
-Run:
-
-```bash
-python -m streamlit run Home.py
-```
-
-To stop the server, press:
-
-```bash
-Ctrl + C
-```
-
----
-
 ## Accessing the App
 
-After starting the server, the following websites are now functional:
+After starting the server, the following website is now functional:
 
 * **http://localhost:8080/** – Accessible only from your machine
