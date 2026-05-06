@@ -3,11 +3,80 @@
 Creating a Transformer Neural Network that will function as AlphaQubit, Google's Transformer Quantum Error Correction Decoder.
 
 # Table of Contents:
-1. [How to use Docker](#how-to-use-docker)
-2. [Setup](#setup)
-3. [Project Structure](#project-structure)
-4. [Development](#development)
-5. [Team Members](#team-members)
+1. [Setup](#setup)
+2. [How to use Docker](#how-to-use-docker)
+3. [Development](#development)
+4. [Team Members](#team-members)
+
+# Setup
+
+**1. Clone the repository**
+
+```sh
+    git clone https://github.com/PrismaticFlame/qec_decoder_transformer.git
+    cd qec_decoder_transformer
+```
+
+**2. Build Docker image and spin up container:**
+
+```sh
+    docker-compose build
+    docker-compose run --rm transformer-gpu bash
+```
+You may have to use the `transformer-dev` version if your GPU is screaming. This will cause every next step to take much longer.
+
+`docker-compose build` took quite a while on my laptop, around 10-12 minutes. Prepare for this to take a while. Thankfully this huge, long process only happens once. If any changes happen in `Dockerfile`, `requirements.txt`, or `docker-compose.yml`, run this command again and it will take under a minute (hopefully).
+
+**3. Generate Data**
+
+```sh
+    cd src/trans6_alphaqubit
+    python gen_basis_data.py --distances 3 --bases x z
+```
+
+**4. Train Model**
+```sh
+    python run_train.py --basis z --distance 3 --rounds 6
+```
+
+After the model has trained (depending on device, it could take between 10 hours and 30 hours) you can evaluate the model to see its performance!
+
+**5. Evaluate the model**
+
+There are several scripts available depending on what you want to check:
+
+**Quick combined score** — loads your X and Z models, evaluates each on its own basis, and reports a single averaged LER (the headline number from the AlphaQubit paper):
+```sh
+    python eval_combine.py --distance 3 \
+        --x_checkpoint checkpoints/x_d3_r6.pth \
+        --z_checkpoint checkpoints/z_d3_r6.pth
+```
+
+**Generalization + MWPM comparison** — tests how the model performs at round counts it was never trained on, and compares directly against the MWPM classical decoder. Produces plots saved to `eval_results/`:
+```sh
+    python eval_generalize.py \
+        --checkpoint checkpoints/x_d3_r6.pth checkpoints/z_d3_r6.pth \
+        --rounds 6 9 11 13 15 17 19 21 23 25
+```
+
+**Error suppression factor (Lambda)** — computes the AlphaQubit Lambda metric, which measures how well the decoder improves as the code distance increases. Higher is better:
+```sh
+    python eval_lambda.py \
+        --checkpoint checkpoints/z_d3_r6.pth --distances 3 5 --mwpm
+```
+
+**MWPM baseline only** — runs the classical MWPM decoder on its own, useful for establishing a baseline without loading any trained model:
+```sh
+    python eval_mwpm.py --distances 3 --basis z --rounds_list 6 9 12 --shots 100000
+```
+
+**Performance across noise levels** — trains and evaluates at multiple physical error rates to see how both the transformer and MWPM hold up as noise increases:
+```sh
+    python sweep_physical_error_rates.py --basis z --shots 50000 --num_steps 30000
+```
+
+> [!NOTE]
+> The recommended order after training is: `eval_generalize.py` first (broad overview), then `eval_combine.py` (headline LER number), then `eval_lambda.py` if you want the paper-style scaling metric.
 
 # How to use Docker
 If you do not have Docker installed on your computer, you will need to install it. I recommend getting [Docker Desktop](https://www.docker.com/products/docker-desktop/) instead of just the engine, but up to you.
@@ -32,68 +101,16 @@ These steps are what you will do in the root directory of the project after clon
     docker-compose run --rm transformer bash
 ```
 
-> [!tip]
+
 > The `docker-compose run --rm transformer bash` command is a specific command to just this project, and you can find the declaration of this command in `docker-compose.yml` paired with the final line of the `Dockerfile`.
 
-**3. Run test script**
+> For the next two commands, there are other tags that can be specified to customize the generated data more as well as how long the model will train for. To recreate our results, create 1M shots (--shots 1_000_000) and then train for 50,000 steps (--num_steps 50_000)
 
-```sh
-    python src/hello_world.py
-```
-
-**4. Exit image**
+**3. Exit image**
 
 ```sh
     exit
 ```
-
-# Setup
-
-**1. Clone the repository**
-
-```sh
-    git clone https://github.com/PrismaticFlame/qec_decoder_transformer.git
-    cd transformer-project
-```
-
-**2. Build Docker container:**
-
-```sh
-    docker-compose build
-```
-
-> [!NOTE]
-> `docker-compose build` took quite a while on my laptop, around 10-12 minutes. Prepare for this to take a while. Thankfully this huge, long process only happens once. If any changes happen in `Dockerfile`, `requirements.txt`, or `docker-compose.yml`, run this command again and it will take under a minute (hopefully).
-
-**3. Run container:**
-
-```sh
-    docker-compose run --rm transformer bash
-```
-
-**4. Inside container, test to make sure it's working:**
-
-```sh
-    python src/hello_world.py
-```
-
-> [!note]
-> `python src/hello_world.py` is the general form of how we will run our scripts. For the majority of the project, we will be using Python so we will be mainly using the `python` command, followed by where the script is.
-
-# Project Structure
-
-> [!warning]
-> This is subject to change. The structure will likely not reflect the current structure of the project because of consistent changes.
-
-- `src/` - Source code
-  - `transformer.py` - Transformer model implementation
-  - `train.py` - Training script
-  - `utils.py` - Utility functions
-  - `hello_world.py` - Hello World file to test in Docker
-- `data/` - Datasets (not committed to Git)
-- `models/` - Saved model checkpoints (not committed to Git)
-- `notebooks/` - Jupyter notebooks for experiments
-- `stim_files/` - Stim files for creating reptition codes, surface codes (maybe?)
 
 # Development
 
@@ -151,6 +168,39 @@ docker-compose exec transformer jupyter notebook --ip=0.0.0.0 --port=8888 --no-b
 
 This starts the server that you will access! However, what the h*ll do you do now? Well, you'll head to your browser and access the server there at this URL: `http://localhost:8888`.
 All things you do in the Jupyter Notebook in the server will be reflect in your files on your puter, so don't worry about syncing between the server and your machine.
+
+# ARC Setup
+
+In the root of repo is a file named `total_setup.py` which will be an easy setup to getting things working on the ARC. The file requires 2 things to run:
+
+1. Automatic SSH Login to the ARC setup
+2. Data (by Tzu-Chen) in the Data directory.
+
+If these two conditions are satisfied, then you are all set to go!
+
+## What it does
+
+1. This script will check your connection to the ARC, and once that is confirmed will find what files you need on the ARC based on a preset list of files. Depending on files are found on the ARC, or no files found at all, it copy all trans7_alphaqubit files to the ARC. 
+
+2. It will also copy all data to the ARC that was created by Tzu-Chen. If the files have not be placed correctly or been randomly sampled, it will handle that as well.
+
+3. Finally, if there are already files on the ARC, specific files will be prioritized and kept so they are not overwritten or deleted. These files include logs (.err, .out, gpu_usage_*.out) and checkpoints of previously trained models.
+
+## Commands
+
+The command should be simple as
+
+```Python
+python total_setup.py --vtusername USERNAME --arc-host tinkercliffs2.arc.vt.edu
+```
+
+If you are scared and don't want to do anything before knowing what will happen, you can add the `--dry-run` flag at the end of the command to see what will happen instead of it actually happening.
+
+In the event that there is a major change to the model or structure of the trans7_alphqbuit directory, Chris will include in the commit the words "UPDATE REQUIRED", to which you will include the `--update` flag in the command, so it will look like:
+
+```Python
+python total_setup.py --vtusername USERNAME --arc-host tinkercliffs2.arc.vt.edu --update
+```
 
 # Team Members
 - Tzu-Chen Chiu
