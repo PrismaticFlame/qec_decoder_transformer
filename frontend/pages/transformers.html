@@ -10,7 +10,7 @@
     <link rel="icon" href="./favicon.ico" type="image/x-icon">
   </head>
   <body>
-    <main>
+    <main> <!-- Navigation bar -->
       <a href="/">Homepage</a>
       |
       <a href="/pages/transformers.html">View training results</a>
@@ -21,7 +21,7 @@
       
       <hr>
       <h1>Training Results</h1>
-      <div>
+      <div> <!-- Swap between versions -->
         <button id="all-button" class="switch clicked">All</button>
         <button id="v3-button" class="switch">V3</button>
         <button id="v5-button" class="switch">V5</button>
@@ -29,25 +29,31 @@
         <button id="v7-button" class="switch">V7</button>
       </div>
 
+      <!-- Summary -->
       <h2><span id="summary-version">All</span>: Short summary</h2>
       <div id="summary"></div>
       
+      <!-- Training results graph and table -->
       <div id="data">
         <h2>Results</h2>
-        <div>
+
+        <div> <!-- Basis buttons -->
           Select your basis: 
           <button id="x-button" class="switch clicked">X</button>
           <button id="z-button" class="switch">Z</button>
         </div>
-        <canvas id="transformer-chart"></canvas>
+
+        <!-- Chart and table -->
+        <canvas id="transformer-chart"></canvas> 
         <details id="details">
           <summary>Show raw metrics</summary>
-          <div class="horizontal-scroll">
+          <div class="horizontal-scroll"> 
             <div id="transformer-table"></div>
           </div>
         </details>
       </div>
 
+      <!-- Model detail tabs -->
       <h2>Model details</h2>
       <p class="hero-section">Hover over a cell to view its full contents</p>
       <div class="tab">
@@ -81,7 +87,51 @@
         <div id="stabilizer-table"></div>
         <h3>Syndrome Transformer (RNN Core)</h3>
         <p>The core recurrent block is structurally identical across Trans3/5/6/7. AlphaQubit uses the same design in JAX. The pseudocode is given by <b>Algorithm 5</b> (Supplementary Information, 41586_2024_8148_MOESM1_ESM.pdf), which calls Algorithms 1-4.</p>
-        <pre class="codebox"><code>Algorithm 5 - RNNCore (per error-correction round):
+        <pre class="codebox architecture"><code>Algorithm 1 – AttentionWithBias (single head):
+  Q = W_q @ X + b_q                # Query ∈ R^{d_attn × ℓ}
+  K = W_k @ Z + b_k                # Key   ∈ R^{d_attn × ℓ}
+  V = W_v @ Z + b_v                # Value ∈ R^{d_mid × ℓ}
+  S = K^T @ Q + B'                  # Score ∈ R^{ℓ × ℓ}
+  return V_tilde = V · softmax(S / sqrt(d_attn))
+
+Algorithm 2 – MHAttentionWithBias:
+  B' = W_b @ B                      # project bias: (H, d_b) @ (d_b, ℓ, ℓ) → per-head biases
+  for h = 0 .. H-1:
+    Y^h = AttentionWithBias(X, B'[h, :, :] | W^h_qkv)   # Alg 1
+  Y = concat(Y^0, Y^1, ..., Y^{H-1})  # stack heads along d_mid dimension
+  return V_tilde = W_o @ Y + b_o
+
+Algorithm 3 – GatedDenseBlock:
+  # Params: W_1 ∈ R^{w·d_d × d_d}, W2 ∈ R^{d_d × (w·d_d/2)}, b1, b2
+  # Hyperparameter: w = widening factor
+  for l = 0 .. ℓ-1:
+    Y = W_1 @ X[:, l] + b1                      # expand to width w·d_d
+    Y = GELU(Y[: w·d_d/2]) * Y[w·d_d/2 :]      # split, gate: activation × gate
+    Y^l = W_2 @ Y + b2                            # project back to d_d
+  return Y = [Y^0; Y^1; ...; Y^{ℓ-1}]
+
+Algorithm 4 – ScatteringResidualConvBlock:
+  # Hyperparams: ℓ = d^2 - 1 stabilizers, L CNN layers, c[l] = output channels per layer
+  # --- Scatter to 2D ---
+  for coord = (0,0), (0,1) ... (d, d):
+    if ∃ stabilizer index with coordinates coord:
+        Y[coord, :] = X[:, index]                 # place stabilizer embedding on grid
+    else:
+        Y[coord, :] = P                            # learned padding vector for empty cells
+  # --- Dilated convolutions ---
+  for l = 0 .. L-1:
+    Y_tilde = layer_norm(Y)
+    Y_tilde = GELU(CNN(Y_tilde; kernel_size=3, channels=c[l]))
+    if c[l] != d_d:
+        Y_tilde = CNN(X_tilde; kernel_size=1, channels=d_d)   # 1×1 conv to match dims
+    Y = Y + Y_tilde                              # residual, Y ∈ R^{(d+1)×(d+1)×d_d}
+  # --- Gather from 2D ---
+  for coord = (0,0), (0,1) ... (d, d):
+    if ∃ stabilizer index with coordinates coord:
+        Z[:, index] = Y[coord, :]                  # read back into sequence
+  return Z
+
+Algorithm 5 - RNNCore (per error-correction round):
   X = (X + S_token) / sqrt(2)       # combine hidden state + new embedding
   for each layer l = 0 .. L-1:
     X = X + MHAttentionWithBias(LN(X), B)       # Alg 2 (calls Alg 1 per head)
@@ -117,8 +167,7 @@
       <div id="flow-div" class="tabcontent">
         <div id="trans3-flow">
           <h3>Trans3 Data Flow</h3>
-          <pre class="codebox"><code>
-Stim circuit (depolarizing noise, single p)
+          <pre class="codebox"><code>Stim circuit (depolarizing noise, single p)
   -> det_hard (N, D) binary detection events
   -> obs (N, 2) [X_label, Z_label]
   -> layout.json (stab_id, cycle_id, x, y)
@@ -127,13 +176,11 @@ Model input:
   syndrome (B, L) = flattened det_hard
   -> StabilizerEmbedding: E_stab(i) + E_cycle(n) + E_val(syndrome)
   -> RNNCore processes T cycles
-  -> mean pool -> Linear -> logits_x, logits_z
-          </code></pre>
+  -> mean pool -> Linear -> logits_x, logits_z</code></pre>
         </div>
         <div id="trans5-flow">
           <h3>Trans5 Data Flow</h3>
-          <pre class="codebox"><code>
-Same data as Trans3, but single basis only:
+          <pre class="codebox"><code>Same data as Trans3, but single basis only:
   -> det_hard (N, D) binary detection events
   -> obs (N, 1) single basis label
 
@@ -141,13 +188,11 @@ Model input:
   syndrome (B, L) = flattened det_hard
   -> StabilizerEmbedding (same as Trans3)
   -> RNNCore processes T cycles
-  -> ReadoutResNet (scatter 2D -> conv -> pool -> ResNet) -> logit
-          </code></pre>
+  -> ReadoutResNet (scatter 2D -> conv -> pool -> ResNet) -> logit</code></pre>
         </div>
         <div id="trans6-flow">
           <h3>Trans6 Data Flow</h3>
-          <pre class="codebox"><code>
-Stim circuit (depolarizing noise)
+          <pre class="codebox"><code>Stim circuit (depolarizing noise)
   -> det_hard (N, D) binary detection events
   -> meas_hard (N, D) = cumulative XOR of det_hard per stabilizer
   -> obs (N, 1) single basis label
@@ -161,14 +206,12 @@ Model input per cycle t:
        -> ResBlock1 -> ResBlock2
   -> [Final cycle: on-basis uses final_embed, off-basis uses learned vector]
   -> RNNCore processes T cycles
-  -> ReadoutResNet -> logit
-          </code></pre>
+  -> ReadoutResNet -> logit</code></pre>
         </div>
         
         <div id="trans7-flow">
           <h3>Trans7 Data Flow</h3>
-          <pre class="codebox"><code>
-Tzu-Chen fixed dataset (Stim, reproducible)
+          <pre class="codebox"><code>Tzu-Chen fixed dataset (Stim, reproducible)
   -> pretrain.h5 (157MB, all distances/rounds/bases compressed)
   -> ChunkedHDF5Dataset: 50k-sample chunks, background prefetch
   -> copied to /tmp/ on compute node before training
@@ -187,13 +230,11 @@ Training:
   -> Lion optimizer, per-distance LR from Table S3
   -> Checkpoint saved on LER improvement (_best.pth)
   -> Resume checkpoint saved every eval (_resume.pth, includes optimizer state)
-  -> Auto-requeue SLURM: submits next job 120s before time limit
-          </code></pre>
+  -> Auto-requeue SLURM: submits next job 120s before time limit</code></pre>
         </div>
         <div>
           <h3>AlphaQubit Data Flow</h3>
-          <pre class="codebox"><code>
-Pauli+ simulator (cross-talk, leakage, I/Q noise)
+          <pre class="codebox"><code>Pauli+ simulator (cross-talk, leakage, I/Q noise)
   -> I/Q readout signals -> posterior probabilities (post1, post2)
   -> Detection events (soft XOR of measurements)
   -> Leakage events (temporal diff of leakage probability)
@@ -206,15 +247,13 @@ Model input per round:
   -> [Final round: separate final-round embedding; off-basis: learned vector]
   -> Syndrome Transformer (attention + gated dense + dilated convolutions) x3 layers
   -> Recurrently updates decoder state
-  -> Readout: scatter 2D -> 2x2 conv -> project -> pool along logical observables -> ResNet -> logit
-          </code></pre>
+  -> Readout: scatter 2D -> 2x2 conv -> project -> pool along logical observables -> ResNet -> logit</code></pre>
         </div>
       </div>
 
       <div id="evolution-div" class="tabcontent">
         <h3>Evolution Summary</h3>
-        <pre class="codebox"><code>
-Trans3 (Baseline Implementation)
+        <pre class="codebox"><code>Trans3 (Baseline Implementation)
   |-- Faithful reproduction of core AlphaQubit components
   |-- Dual-head (X+Z) training
   |-- Simple linear readout
@@ -262,8 +301,7 @@ AlphaQubit (Full Paper, remaining gaps)
   |-- Noise and rounds curricula
   |-- Multi-distance training
   |-- Ensembling (15-20 models)
-  |-- Scale: billions of training samples
-        </code></pre>
+  |-- Scale: billions of training samples</code></pre>
       </div>
         
 

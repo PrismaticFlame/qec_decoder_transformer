@@ -1,4 +1,4 @@
-# Running the Streamlit App Locally
+# Running the Docker App Locally
 
 ## Prerequisites
 

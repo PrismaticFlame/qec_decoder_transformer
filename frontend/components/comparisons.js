@@ -577,6 +577,7 @@ const syndromeDict = {
         }
     ]
 }
+
 // 2.3 Attention
 const attentionAspect = [
     "Bias type",
@@ -1277,8 +1278,7 @@ const gapsDict = {
     ]
 }
 
-// ...
-
+// Function calls
 // Sort by version
 function getV3(dict) {
     var copyDict = {}
@@ -1396,7 +1396,6 @@ export function getStructure(version = "All") {
 }
 
 // Model Architecture
-
 function getStabilizer(version = "All") {
     switch (version) {
         case "V3":
@@ -1411,6 +1410,7 @@ function getStabilizer(version = "All") {
             return stabilizerDict
     }
 }
+
 function getSyndrome(version = "All") {
     switch (version) {
         case "V3":
@@ -1552,5 +1552,3 @@ export function getDifferences(version = "All") {
     }
     return differences
 }
-
-// Data Flow Diagrams
