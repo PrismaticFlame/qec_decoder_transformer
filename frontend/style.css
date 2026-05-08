@@ -1,0 +1,102 @@
+/* Details */
+details {
+  border: 1px solid #aaaaaa;
+  border-radius: 4px;
+  padding: 0.5em 0.5em 0;
+  width:fit-content;
+}
+
+summary {
+  font-weight: bold;
+  margin: -0.5em -0.5em 0;
+  padding: 0.5em;
+}
+
+details[open] {
+  padding: 0.5em;
+}
+
+details[open] summary {
+  border-bottom: 1px solid #aaaaaa;
+  margin-bottom: 0.5em;
+}
+
+/* Tabs */
+.tab {
+  overflow: hidden;
+  border: 1px solid #ccc;
+  background-color: #f1f1f1;
+}
+
+.tab button {
+  background-color: inherit;
+  float: left;
+  border: none;
+  outline: none;
+  cursor: pointer;
+  padding: 14px 16px;
+  transition: 0.3s;
+}
+
+.tab button:hover {
+  background-color: #ddd;
+}
+
+.tab button.active {
+  background-color: #ccc;
+}
+
+.tabcontent {
+  display: none;
+  padding: 6px 12px;
+  border: 1px solid #ccc;
+  border-top: none;
+}
+
+/* Codeboxes */
+.codebox {
+        border:1px solid black;
+        background-color:#EEEEFF;
+        white-space: pre-line;
+        padding:10px;
+        font-size:0.9em;
+        display: inline-block;
+}
+code, pre {
+  white-space: pre;
+}
+pre.architecture {
+  overflow: auto;
+  height: 300px;
+}
+
+/* Buttons */
+button.switch { 
+  padding: 10px 15px; 
+  cursor: pointer; 
+  background: #0066cc; 
+  color: white; 
+  border: none; 
+  border-radius: 4px; 
+  margin: 5px 0; }
+button.switch:hover { background: #004a99; }
+button.clicked {
+ background: #024283; 
+}
+
+/* Transformer table */
+.horizontal-scroll {
+  overflow: auto;
+  white-space: nowrap;
+  max-width: 1000px;
+}
+
+/* Misc */
+.hero-section { background: #f0f7ff; padding: 20px; border-radius: 8px; margin-bottom: 30px; border: 1px solid #d0e7ff; }
+body { font-family: sans-serif; line-height: 1.6; max-width: 1000px; margin: 0 auto; padding: 20px; color: #333; }
+h1 { color: #004a99; }
+h2 { color: #0066cc; margin-top: 30px; border-bottom: 1px solid #eee; }
+h3 { color: #0080ff; }
+.definition-list { background: #f9f9f9; padding: 20px; border-radius: 8px; border-left: 5px solid #0066cc; }
+.definition-item { margin-bottom: 8px; font-weight: bold; }
+.definition-item span { font-weight: normal; }

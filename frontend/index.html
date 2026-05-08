@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Quantum Error Correction</title>
+    <link rel="icon" href="./favicon.ico" type="image/x-icon">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <main> <!-- Navigation bar -->
+        <a href="/">Homepage</a>
+        |
+        <a href="/pages/transformers.html">View training results</a>
+        |
+        <a href="/pages/references.html">References</a>
+        |
+        <a href="/pages/results.html">Final Results</a>
+    </main>
+
+    <hr>
+
+    <article>
+        <h1>Quantum Error Correction: A Neural Network Decoder for Surface Codes</h1>
+
+        <section>
+            <h2>What is quantum error correction?</h2>
+            <p>Quantum error correction - or QEC for short - is an algorithm known to identify and fix errors in quantum computers. This error-correcting algorithm is able to draw from validated mathematical approaches used to engineer special “radiation-hardened” classical microprocessors deployed in space or other extreme environments where errors are much more likely to occur.</p>
+            <p>In QEC quantum information stored in a single qubit is distributed across other supporting qubits; we say that this information is "encoded" in a logical quantum bit. This procedure protects the integrity of the original quantum information even while the quantum processor runs - but at a cost in terms of how many qubits are required. Overall, the worse your noise is, the more qubits you need.</p>
+            <p>For more information check out <a href="https://q-ctrl.com/topics/what-is-quantum-error-correction" target="_blank">Basics of QEC by Q_CTRL</a>.</p>
+        </section>
+
+        
+
+        <section>
+            <h2>What is a transformer?</h2>
+            <p>A Transformer is a neural network architecture introduced in the 2017 paper "Attention is All You Need" by Vaswani et al. Unlike previous models (RNNs, LSTMs) that process sequences step-by-step, transformers process entire sequences at once using attention mechanisms.</p>
+            <h3>Key Innovation: Self-Attention</h3>
+            <p>The transformer can look at all words in a sentence simultaneously and figure out which words are most relevant to understanding each other word. For example, in "The animal didn't cross the street because it was too tired", the model learns that "it" refers to "animal", not "street".</p>
+        </section>
+
+        
+
+        <section>
+            <h2>How does a neural network decode quantum errors?</h2>
+            <h3>The Syndrome</h3>
+            <p>A neural network decoder analyzes syndrome data produced by a quantum error-correcting code to determine whether errors have occurred on the underlying qubits. In quantum computers, directly measuring a qubit would collapse its quantum state. Instead, quantum error correction measures ancilla (support) qubits that perform parity checks on groups of data qubits. These measurements produce a sequence of values called a <b>syndrome</b>.</p>
+            
+            <h3>The Decoder</h3>
+            <p>A transformer-based neural network decoder takes these syndrome sequences and learns patterns of how errors propagate across both space (different qubits) and time (repeated measurement cycles). By processing the full syndrome history with attention mechanisms, the model can identify correlations that indicate when and where an error likely occurred. Recent work such as the AlphaQubit decoder demonstrates that transformer-based models can outperform traditional decoding algorithms.</p>
+        </section>
+
+        <section>
+            <h2>Key definitions</h2>
+            <div class="definition-list">
+                <div class="definition-item">Basis: <span>A vector in a high-dimensional vector space (the Hilbert space), such as |0>, |1>, |+>, and |->.</span></div>
+                <div class="definition-item">LER: <span>Logical Error Rate</span></div>
+                <div class="definition-item">Shots: <span>Number of circuit executions</span></div>
+                <div class="definition-item">Steps: <span>Training iterations</span></div>
+                <div class="definition-item">Distance: <span>Code distance (d)</span></div>
+                <div class="definition-item">Rounds: <span>Syndrome measurement cycles</span></div>
+                
+            </div>
+        </section>
+    </article>
+</body>
+</html>
